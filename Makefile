@@ -89,7 +89,7 @@ clean: ; -rm -f -- $(target)
 
 dist_dir := $(PACKAGE)-$(VERSION)
 dist_arc = $(dist_dir).tar.xz
-dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c pngtopi1.1
+dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c
 
 dist: distrib
 distcheck: dist-check
@@ -105,6 +105,8 @@ dist-dir:
 
 dist-arc: dist-dir
 	@set -o pipefail; tar -cpC $(topdir) $(dist_lst) | tar -xpC $(dist_dir)
+	sed -e 's/@VERSION@/$(VERSION)/' $(topdir)/pngtopi1$(man1ext) \
+	>$(dist_dir)/pngtopi1$(man1ext)
 	echo $(VERSION) >$(dist_dir)/VERSION
 	tar --owner=0 --group=0 -czpf $(dist_arc) $(dist_dir)/
 	rm -rf -- $(dist_dir)/
