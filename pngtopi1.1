@@ -1,0 +1,38 @@
+.TH PNGTOPI1 "1" "October 2017" "pngtopi1 @VERSION@" "User Commands"
+.SH NAME
+pngtopi1 \- manual page for pngtopi1 @VERSION@
+.SH SYNOPSIS
+.B pngtopi1
+[\fI\,OPTIONS\/\fR] \fI\,<input.png> \/\fR[\fI\,<output>\/\fR]
+.SH DESCRIPTION
+A simple PNG to Atari-ST Degas image converter.
+.SS "OPTIONS:"
+.TP
+\fB\-h\fR \fB\-\-help\fR \fB\-\-usage\fR
+Print this message and exit.
+.TP
+\fB\-V\fR \fB\-\-version\fR
+Print version and copyright and exit.
+.TP
+\fB\-q\fR \fB\-\-quiet\fR
+Print less messages
+.TP
+\fB\-v\fR \fB\-\-verbose\fR
+Print more messages
+.TP
+\fB\-e\fR \fB\-\-ste\fR
+Use STE color quantization (4 bits per component)
+.TP
+\fB\-z\fR \fB\-\-compress\fR
+force RLE compressed image (pc1,pc2 or pc3)
+.TP
+\fB\-r\fR \fB\-\-raw\fR
+force uncompressed image (pi1,pi2 or pi3)
+.SS "OUTPUT:"
+.TP
+If \fIoutput\fR is omitted it is guessed from \fIinput\fR.
+.SH "REPORTING BUGS"
+Report bugs to <https://github.com/benjihan/pngtopi1/issues>
+.SH COPYRIGHT
+Copyright \(co 2017-2018 Benjamin Gerard AKA Ben/OVR
+Licensed under GNU General Public License 3

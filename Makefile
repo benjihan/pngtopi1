@@ -14,7 +14,6 @@ VERSION   := $(shell $(topdir)/vcversion.sh || echo ERROR)
 ifeq ($(VERSION),ERROR)
 $(error vcversion.sh failed)
 endif
-PKGCONFIG  = pkg-config
 pkgconfig  = $(shell $(PKGCONFIG) $(1) || echo n/a)
 
 # ----------------------------------------------------------------------
@@ -25,6 +24,26 @@ pkgconfig  = $(shell $(PKGCONFIG) $(1) || echo n/a)
 # ----------------------------------------------------------------------
 
 vpath %.c $(srcdir)
+
+# ----------------------------------------------------------------------
+#  Toolchain
+# ----------------------------------------------------------------------
+
+ifndef STRIP
+ifeq ($(CC:%gcc=gcc),gcc)
+STRIP = $(CC:%gcc=%strip)
+else
+STRIP = strip
+endif
+endif
+
+ifndef PKGCONFIG
+ifeq ($(CC:%gcc=gcc),gcc)
+PKGCONFIG = $(CC:%gcc=%pkg-config)
+else
+PKGCONFIG = pkg-config
+endif
+endif
 
 # ----------------------------------------------------------------------
 #  Confgure libpng with pkg-config
@@ -70,7 +89,7 @@ clean: ; -rm -f -- $(target)
 
 dist_dir := $(PACKAGE)-$(VERSION)
 dist_arc = $(dist_dir).tar.xz
-dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c
+dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c pngtopi1.1
 
 dist: distrib
 distcheck: dist-check
@@ -118,3 +137,69 @@ dist-sweep:
 
 .PHONY: dist dist-all dist-arc dist-dir dist-check dist-extract	\
         dist-make dist-sweep distcheck
+
+# ----------------------------------------------------------------------
+#  Install / Uninstall
+# ----------------------------------------------------------------------
+
+ifndef prefix
+PREFIX = $(error 'prefix' must be set to install)
+else
+PREFIX = $(prefix)
+endif
+
+ifndef datadir
+DATADIR = $(PREFIX)/share
+else
+DATADIR = $(datadir)
+endif
+
+exec_dir = $(PREFIX)
+bindir   = $(exec_dir)/bin
+libdir   = $(exec_dir)/lib
+mandir   = $(DATADIR)/man
+man1dir  = $(mandir)/man1
+man1ext  = .1
+docdir   = $(DATADIR)/doc/$(PACKAGE)-$(VERSION)
+INSTALL  = install $(INSTALL_OPT)
+
+INSTALL_BIN = $(INSTALL) -m755 -t "$(DESTDIR)$(1)" "$(2)"
+INSTALL_DOC = $(INSTALL) -m644 -t "$(DESTDIR)$(1)" "$(2)"
+INSTALL_MAN = sed -e 's/@VERSION@/$(VERSION)/' "$(2)" \
+	>"$(DESTDIR)$(1)/$(notdir $2)"
+
+install-strip: INSTALL_OPT = --strip-program=$(STRIP) -s
+install-strip: install
+install: install-exec install-data
+	@echo "$(PACKAGE) $(VERSION) should be installed"
+
+install-exec: install-bin
+install-data: install-man install-doc
+
+install-bin: $(target)
+	mkdir -p -- "$(DESTDIR)$(bindir)"
+	$(call INSTALL_BIN,$(bindir),$^)
+
+install-man: $(srcdir)/$(target)$(man1ext)
+	mkdir -p -- "$(DESTDIR)$(man1dir)"
+	$(call INSTALL_MAN,$(man1dir),$<)
+
+install-doc: INSTALL_OPT = --mode=644
+install-doc: $(topdir)/README.md
+	mkdir -p -- "$(DESTDIR)$(docdir)"
+	$(call INSTALL_DOC,$(docdir),$<)
+
+.PHONY: install-strip install install-exec install-bin
+.PHONY: install-data install-man install-doc
+
+uninstall-doc: ; rm -rf -- "$(DESTDIR)$(docdir)/"
+uninstall-man: ; rm -f -- "$(DESTDIR)$(man1dir)/$(target)$(man1ext)"
+uninstall-bin: ; rm -f -- "$(DESTDIR)$(bindir)/$(target)"
+
+uninstall-data: uninstall-man uninstall-doc
+uninstall-exec: uninstall-bin
+uninstall: uninstall-exec uninstall-data
+	@echo "$(PACKAGE) $(VERSION) should be uninstalled"
+
+.PHONY: uninstall uninstall-exec uninstall-data
+.PHONY: uninstall-bin uninstall-man uninstall-doc
