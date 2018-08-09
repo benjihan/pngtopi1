@@ -32,6 +32,11 @@ If `output` is omitted the file path is created automatically.
 
     make
 
+Or alternatively have a look at the _build directory:
+
+    cd _build/i686-w64-mingw32
+	../compile
+
 #### Makefile variables
 
  |   Variable   | Description         | Default value                      |
