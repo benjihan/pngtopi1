@@ -34,9 +34,11 @@ If `output` is omitted the file path is created automatically.
 
 #### Makefile variables
 
- | Variable   | Description        | Default value                      |
- |------------|--------------------|------------------------------------|
- | PKGCONFIG  | pkg-config program | `pkg-config`                       |
- | PNGVERSION | libpng version     | `$(PKGCONFIG) libpng --modversion` |
- | PNGCFLAGS  | libpng CFLAGS      | `$(PKGCONFIG) libpng --cflags`     |
- | PNGLIBS    | libpng LDLIBS      | `$(PKGCONFIG) libpng --libs`       |
+ |   Variable   | Description         | Default value                      |
+ |--------------|---------------------|------------------------------------|
+ | `PKGCONFIG`  | pkg-config program  | `pkg-config`                       |
+ | `PNGVERSION` | libpng version      | `$(PKGCONFIG) libpng --modversion` |
+ | `PNGCFLAGS`  | libpng CFLAGS       | `$(PKGCONFIG) libpng --cflags`     |
+ | `PNGLIBS`    | libpng LDLIBS       | `$(PKGCONFIG) libpng --libs`       |
+ | `prefix`     | install location    | *undefined*                        |
+ | `datadir`    | data files location | `$(prefix)/share`                  |
