@@ -69,9 +69,10 @@ endif
 # ----------------------------------------------------------------------
 
 target   := $(PACKAGE)
-CPPFLAGS += -DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"'
-CFLAGS   += $(PNGCLAGS)
-LDLIBS   += $(PNGLIBS)
+
+override CPPFLAGS += -DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"'
+override CFLAGS   += $(PNGCLAGS)
+override LDLIBS   += $(PNGLIBS)
 
 # ----------------------------------------------------------------------
 #  Rules
