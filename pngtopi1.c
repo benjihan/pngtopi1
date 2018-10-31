@@ -113,6 +113,7 @@ typedef unsigned int uint_t;
 typedef struct mypng_s mypng_t;
 struct mypng_s {
   int8_t magic[4];                    /* GB: DO NOT MOVE ME ("PNG") */
+  const char * path;
   int w, h, d, i, t, c, f, z, p;
   png_structp png;
   png_colorp  lut;
@@ -124,6 +125,7 @@ struct mypng_s {
 typedef struct mypix_s mypix_t;
 struct mypix_s {
   int8_t magic[4];               /* GB: DO NOT MOVE ME ("PI1" ...) */
+  const char * path;
   int w, h, d, c;                /* width, height, log2(bit-plans) */
   uint8_t bits[32034];           /* uncompressed (include header)  */
 };
@@ -136,12 +138,9 @@ union myimg_s {
 
 typedef struct colorcount_s colcnt_t;
 struct colorcount_s {
-  uint_t rgb:12, cnt:20;
+  uint32_t rgb:12, cnt:20;              /* Is it legal ? */
 };
 static colcnt_t g_colcnt[0x1000];
-
-/* static const uint8_t pngmagic[] = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a"; */
-
 
 static const struct degasfmt_s {
   const char name[4];
@@ -492,11 +491,13 @@ static void myimg_free(myimg_t ** img)
   }
 }
 
-static myimg_t * mypng_init(void)
+static myimg_t * mypng_init(const char * path)
 {
   myimg_t * img = mf_calloc(sizeof(img->png));
-  if (img)
+  if (img) {
     strcpy((char*)img->png.magic, "PNG");
+    img->png.path = path ? path : "<mypng>";
+  }
   return img;
 }
 
@@ -526,7 +527,7 @@ static myimg_t * read_img_file(char * iname)
 
     mypng_t * png;
 
-    img = mypng_init();
+    img = mypng_init(iname);
     if (!img)
       goto error;
     png = & img->png;
@@ -556,14 +557,6 @@ static myimg_t * read_img_file(char * iname)
     png->c = png_get_channels(png->png, png->inf);
     png->p = png_set_interlace_handling(png->png);
     png_read_update_info(png->png, png->inf);
-
-    /* GB: not sure if we handle that or not ? */
-#if 0
-    if (png->i != PNG_INTERLACE_NONE) {
-      emsg("invalid PNG interlacing mode -- %d\n", png->i);
-      goto error;
-    }
-#endif
 
     /* read file */
     if (setjmp(png_jmpbuf(png->png)))
@@ -601,7 +594,6 @@ error:
   goto exit;
 }
 
-
 static char * mypng_typestr(mypng_t * png)
 {
 # define CASE_COLOR_TYPE(A) case PNG_COLOR_TYPE_##A: return #A
@@ -622,19 +614,6 @@ static char * mypng_typestr(mypng_t * png)
   sprintf(s,"?%02x?", png->t & 255);
   return s;
 }
-
-#if 0
-static char * mypng_ilacestr(mypng_t * png)
-{
-  static char s[8];
-  switch (png->i) {
-  case PNG_INTERLACE_NONE: return "NONE";
-  case PNG_INTERLACE_ADAM7: return "ADAM7";
-  }
-  sprintf(s,"?%02x?", png->i & 255);
-  return s;
-}
-#endif
 
 /* ----------------------------------------------------------------------
  * PNG get pixels functions
@@ -666,7 +645,6 @@ static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
     col |= ( ( pix->bits[ y ]>> bitnum ) & 1 ) << p;
   return col;
 }
-
 
 static uint16_t get_gray1(const mypng_t * png, int x, int y)
 {
@@ -778,12 +756,30 @@ static int cc_cmp(const void * _a, const void * _b)
   return b->cnt - a->cnt;
 }
 
-void sort_colorcount(colcnt_t * cc)
+static int lumi(int x)
 {
-  qsort(cc, 0x1000, sizeof(colcnt_t), cc_cmp);
+  assert( ( x & 0xfff ) == x );
+  return 2 * (x & 15) + 4 * ((x>>4)&15) + (x>>8);
 }
 
-static myimg_t * mypix_alloc(int id)
+static int cl_cmp(const void * _a, const void * _b)
+{
+  const colcnt_t * const a = _a;
+  const colcnt_t * const b = _b;
+  return lumi(a->rgb) - lumi(b->rgb);
+}
+
+void sort_colorcount(colcnt_t * cc, int n)
+{
+  qsort(cc, n, sizeof(colcnt_t), cc_cmp);
+}
+
+void sort_colorbright(colcnt_t * cc, int n)
+{
+  qsort(cc, n, sizeof(colcnt_t), cl_cmp);
+}
+
+static myimg_t * mypix_alloc(int id, const char * path)
 {
   myimg_t * img;
 
@@ -796,6 +792,7 @@ static myimg_t * mypix_alloc(int id)
     img->pix.h = degas[id].h;
     img->pix.d = degas[id].d;
     img->pix.c = degas[id].c;
+    img->pix.path = path ? path :"<mypix>";
   }
   return img;
 }
@@ -899,9 +896,10 @@ static myimg_t * mypix_from_file(myfile_t * const mf)
   }
   dmsg("%s detected\n", degas[i].name);
 
-  img = mypix_alloc(i);
+  img = mypix_alloc(i,mf->path);
   if (!img)
     return 0;
+
   memcpy(img->pix.bits,hd,34);          /* copy header */
   if ( ! degas[i].rle ) {
     /* Uncompressed Degas image */
@@ -953,8 +951,11 @@ static myimg_t * mypix_from_png(mypng_t * png)
     if (png->w == degas[id].w && png->h == degas[id].h)
       break;
 
-  if (id == 6)
+  if (id == 6) {
+    emsg("Incompatible image dimension (%dx%d) -- %s\n",
+         png->w,png->h,png->path);
     return 0;
+  }
 
   log2plans = degas[id].d;
   lutmax = 1<<(1<<log2plans);
@@ -975,7 +976,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
     for (x=0; x < png->h; ++x)
       ++ colcnt[ s->get(png,x,y) ].cnt;
 
-  sort_colorcount(colcnt);
+  sort_colorcount(colcnt, 0x1000);
   for (x=0; x<0x1000 && colcnt[x].cnt; ++x)
     amsg("color #%02d $%03X %+6d\n", x, colcnt[x].rgb, colcnt[x].cnt);
 
@@ -983,6 +984,9 @@ static myimg_t * mypix_from_png(mypng_t * png)
     emsg("too many colors -- %d > %d", x, lutmax);
     return 0;
   }
+
+  /* Supporting by brightness is only necessary for P?3 images */
+  sort_colorbright(colcnt, x);
 
   lut[0] = 0;
   for (y=0; y < x; ++y)
@@ -996,7 +1000,9 @@ static myimg_t * mypix_from_png(mypng_t * png)
 
   assert( (bytes_per_row * png->h) == 32000 );
 
-  img  = mypix_alloc(id);
+  img  = mypix_alloc(id, png->path);
+  if (!img)
+    return 0;
   bits = img->pix.bits;
 
   /* Degas signature */
@@ -1280,23 +1286,23 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
   if (-1 == mf_open(&mf,path,2))
     goto error;
 
-  /* Initialize write structure */
-  png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
+  png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, 0,0,0);
   if (!png_ptr)
     goto png_error;
 
-  /* Initialize info structure */
-  info_ptr = png_create_info_struct(png_ptr);
-  if (!info_ptr)
+  if (info_ptr = png_create_info_struct(png_ptr), !info_ptr)
     goto png_error;
 
-  /* Setup Exception handling */
   if (setjmp(png_jmpbuf(png_ptr)))
     goto png_error;
 
   png_init_io(png_ptr, mf.file);
 
-  assert ( pix->c <= sizeof(lut)/sizeof(*lut) );
+  /* Set color #0 to black */
+  lut->red = lut->green = lut->blue = 0;
+
+  assert (sizeof(lut)/sizeof(*lut) == 16 );
+  assert ( pix->c <= 16 );
   for ( ste_detect = y = 0; y < pix->c; ++y ) {
     const uint8_t * const st_lut = &pix->bits[2+(y<<1)];
     const uint16_t st_rgb = (st_lut[0]<<8) | st_lut[1];
@@ -1308,62 +1314,56 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
          (uint_t)y, (uint_t)st_rgb & 0xFFF,
          (uint_t)lut[y].red,(uint_t)lut[y].green,(uint_t) lut[y].blue);
   }
+  /* Set remaining but #0 to White */
+  for ( y += !y ; y < 16; ++y )
+    lut[y].red = lut[y].green = lut[y].blue = 255;
+
+  /* checking if STe color were detect but not set. */
+  if (ste_detect && opt_ste != STE_COL)
+    wmsg("%s: %d color/s using STe mode.\n",
+         path, ste_detect);
 
   switch ( pix->magic[2] ) {
   case '1':
-    png_set_IHDR(png_ptr, info_ptr, 320, 200,
-                 4, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
+    assert( pix->w == 320 && pix->h == 200 && pix->d == 2 && pix->c == 16 );
+    png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
+                 1<<pix->d, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
-
-    if (ste_detect && opt_ste != STE_COL)
-      wmsg("%s: %d color/s using STe mode.\n",
-           path, ste_detect);
-
-    png_set_PLTE(png_ptr,info_ptr,lut,16);
+    png_set_PLTE(png_ptr,info_ptr,lut,pix->c);
     png_write_info(png_ptr, info_ptr);
 
-#if 0
-    /* per lines */
     for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
-
-      memset(tmp,0,160);        /* clear bits so we just have to OR */
-      for (x=0; x<320; ++x) {
-        png_bytep til = &row [ (x>>4<<3) + ((x>>3)&1) ];
-        const int bit = (~x & 7);
-        const int lsl = (bit & 1) << 2;
-
-        tmp [ x >> 1 ] |= 0
-          | ( ( 1 & ( til[0] >> bit ) ) << (lsl+0) )
-          | ( ( 1 & ( til[2] >> bit ) ) << (lsl+1) )
-          | ( ( 1 & ( til[4] >> bit ) ) << (lsl+2) )
-          | ( ( 1 & ( til[6] >> bit ) ) << (lsl+3) )
-          ;
-
-      }
+      for (x=0; x<320; x += 2)
+        tmp[x >> 1] = ( get_st_pixel(pix,x,y) << 4) | get_st_pixel(pix,x+1,y);
       png_write_row(png_ptr, tmp);
     }
-# else
-    for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
-      memset(tmp,0,160);        /* clear bits so we just have to OR */
-      for (x=0; x<320; x += 2)
-        tmp[x >> 1] = get_st_pixel(pix,x,y) | (get_st_pixel(pix,x+1,y)<<4);
-    }
-#endif
 
     goto error;
     break;
 
   case '2':
-    png_set_IHDR(png_ptr, info_ptr, 640, 200,
-                 2, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
+    assert( pix->w == 640 && pix->h == 200 && pix->d == 1 && pix->c == 4 );
+    png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
+                 1<<pix->d, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+    png_set_PLTE(png_ptr,info_ptr,lut,pix->c);
     png_write_info(png_ptr, info_ptr);
-    emsg("Not implemented\n");
-    goto error;
+
+    for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
+      for (x=0; x<640; x += 4)
+        tmp[x >> 2] = 0
+          | ( get_st_pixel(pix,x+0,y) << 6)
+          | ( get_st_pixel(pix,x+1,y) << 4)
+          | ( get_st_pixel(pix,x+2,y) << 2)
+          | ( get_st_pixel(pix,x+3,y) << 0)
+          ;
+      png_write_row(png_ptr, tmp);
+    }
     break;
 
   case '3':
-    png_set_IHDR(png_ptr, info_ptr, 640, 400,
+    assert( pix->w == 640 && pix->h == 400 && pix->d == 0 && pix->c == 0 );
+    png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
                  1, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_write_info(png_ptr, info_ptr);
@@ -1379,7 +1379,6 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
     break;
   }
 
-  // End write
   png_write_end(png_ptr, 0);
   ret = 0;
 
@@ -1387,7 +1386,6 @@ error:
   mf_close(&mf);
   if (!info_ptr) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
   if (!png_ptr)  png_destroy_write_struct(&png_ptr, (png_infopp)0);
-  /* if (row)       free(row); */
 
   return ret;
 
@@ -1517,7 +1515,7 @@ int main(int argc, char *argv[])
     ecode = E_PNG;
     dst = mypix_from_png(png);
     if (!dst) {
-      emsg("unsupported image conversion\n");
+      emsg("unsupported image conversion -- %s\n", iname);
       goto exit;
     }
   }
