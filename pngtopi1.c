@@ -97,10 +97,18 @@ enum {
   DEGAS_PI1 = 0x0000,
   DEGAS_PI2 = 0x0001,
   DEGAS_PI3 = 0x0002,
-  DEGAS_PC1 = 0x8000,
-  DEGAS_PC2 = 0x8001,
-  DEGAS_PC3 = 0x8002,
+  DEGAS_PC1 = DEGAS_PI1+0x8000,
+  DEGAS_PC2 = DEGAS_PI2+0x8000,
+  DEGAS_PC3 = DEGAS_PI3+0x8000
 };
+
+static uint8_t opt_ste = 0;     /* mask used color bits (default TBD)*/
+static uint8_t opt_pcx = PXX;   /* {PXX,PIX,PCX} (see enum) */
+static  int8_t opt_bla = 0;     /* blah blah level */
+static uint8_t opt_dir = 0;     /* same dir versus current dir */
+
+
+typedef unsigned int uint_t;
 
 typedef struct mypng_s mypng_t;
 struct mypng_s {
@@ -113,22 +121,22 @@ struct mypng_s {
   png_bytep  *rows;
 };
 
-typedef struct mypic_s mypic_t;
-struct mypic_s {
+typedef struct mypix_s mypix_t;
+struct mypix_s {
   int8_t magic[4];               /* GB: DO NOT MOVE ME ("PI1" ...) */
-  int w, h, d;                   /* width, height, log2(bit-plans) */
+  int w, h, d, c;                /* width, height, log2(bit-plans) */
   uint8_t bits[32034];           /* uncompressed (include header)  */
 };
 
 typedef union myimg_s myimg_t;
 union myimg_s {
-  mypic_t pic;
+  mypix_t pix;
   mypng_t png;
 };
 
 typedef struct colorcount_s colcnt_t;
 struct colorcount_s {
-  unsigned int rgb:12, cnt:20;
+  uint_t rgb:12, cnt:20;
 };
 static colcnt_t g_colcnt[0x1000];
 
@@ -137,7 +145,7 @@ static colcnt_t g_colcnt[0x1000];
 
 static const struct degasfmt_s {
   const char name[4];
-  short id, minsz, w, h, d, lut, rle;
+  unsigned short  id, minsz,   w,  h, d, c,rle;
 } degas[6] = {
   { "PI1", DEGAS_PI1, 32034, 320,200, 2,16, 0 },
   { "PC1", DEGAS_PC1, 1634 , 320,200, 2,16, 1 },
@@ -147,71 +155,33 @@ static const struct degasfmt_s {
   { "PC3", DEGAS_PC3, 854  , 640,400, 0,0,  1 },
 };
 
-/* ---------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------
+ * Forward declarations
+ **/
 
-static void print_version(void)
-{
-  puts(
-    PACKAGE_STRING "\n"
-    "\n"
-    COPYRIGHT ".\n"
-    "License GPLv3+ or later <http://gnu.org/licenses/gpl.html>\n"
-    "This is free software: you are free to change and redistribute it.\n"
-    "There is NO WARRANTY, to the extent permitted by law.\n"
-    "\n"
-    "Written by Benjamin Gerard <https://github.com/benjihan>\n"
-    );
-}
+static void print_version(void);
+static void print_usage(void);
+static int mypix_save(mypix_t * pix, const char * oname);
 
-static void print_usage(void)
-{
-  puts(
-    "Usage: " PROGRAM_NAME " [OPTION] <input> [output]\n"
-    "\n"
-    "  A simple PNG to Atari-ST Degas image converter.\n"
-    "\n"
-    "  Despite its name:\n"
-    "   - This program can handle {PI1/PI2/PI3/PC1/PC2/PC3} images.\n"
-    "   - This program can create a PNG image from a Degas image.\n"
-    "\n"
-    "OPTIONS\n"
-    " -h --help --usage   Print this help message and exit.\n"
-    " -V --version        Print version message and exit.\n"
-    " -q --quiet          Print less messages\n"
-    " -v --verbose        Print more messages\n"
-    " -e --ste            Use STE color quantization (4 bits per component)\n"
-    " -z --compress       force image compression (pc1,pc2 or pc3)\n"
-    " -r --raw            force RAW image (pi1,pi2 or pi3)\n"
-    " -d --same-dir       automatic save path includes source path\n"
-    "\n"
-    "If output is omitted the file path is created automatically.\n"
-    "\n"
-    COPYRIGHT ".\n"
-#ifdef PACKAGE_URL
-    "Visit <" PACKAGE_URL ">.\n"
-#endif
-#ifdef PACKAGE_BUG
-    "Report bugs to <" PACKAGE_BUG ">\n"
-#endif
-    );
-}
 
-/* ---------------------------------------------------------------------- */
-
-static int8_t opt_ste = STF_COL;  /* mask used color bits (default STf)*/
-static int8_t opt_pcx = PXX;      /* {PXX,PIX,PCX} (see enum) */
-static int8_t opt_bla = 0;        /* blah blah level */
-static int8_t opt_dir = 0;        /* same dir versus current dir */
+/* ----------------------------------------------------------------------
+ *  Message functions
+ **/
 
 #ifndef FMT12
 #define FMT12
 #endif
 
 /* debug message (-vv) */
-static void dmsg(char * fmt, ...) FMT12;
-static void dmsg(char * fmt, ...)
+
+#ifndef DEBUG
+
+#define dmsg(FMT,...) (void)
+
+#else
+static void dmsg(const char * fmt, ...) FMT12;
+static void dmsg(const char * fmt, ...)
 {
-#ifdef DEBUG
   if (opt_bla >= 2) {
     va_list list;
     va_start(list, fmt);
@@ -219,8 +189,8 @@ static void dmsg(char * fmt, ...)
     fflush(stdout);
     va_end(list);
   }
-#endif
 }
+#endif
 
 /* additional message (-v) */
 static void amsg(char * fmt, ...) FMT12;
@@ -236,8 +206,8 @@ static void amsg(char * fmt, ...)
 }
 
 /* informational message */
-static void imsg(char * fmt, ...) FMT12;
-static void imsg(char * fmt, ...)
+static void imsg(const char * fmt, ...) FMT12;
+static void imsg(const char * fmt, ...)
 {
   if (opt_bla >= 0) {
     va_list list;
@@ -249,8 +219,8 @@ static void imsg(char * fmt, ...)
 }
 
 /* warning message (-q) */
-static void wmsg(char * fmt, ...) FMT12;
-static void wmsg(char * fmt, ...)
+static void wmsg(const char * fmt, ...) FMT12;
+static void wmsg(const char * fmt, ...)
 {
   if (opt_bla >= 0) {
     va_list list;
@@ -263,8 +233,8 @@ static void wmsg(char * fmt, ...)
 }
 
 /* error message (-qq) */
-static void emsg(char * fmt, ...) FMT12;
-static void emsg(char * fmt, ...)
+static void emsg(const char * fmt, ...) FMT12;
+static void emsg(const char * fmt, ...)
 {
   if (opt_bla >= -1) {
     va_list list;
@@ -295,11 +265,13 @@ static void pngerror(const char * path)
   syserror(path,"libpng error");
 }
 
-/* ----------------------------------------------------------------------
- * read files
- * ---------------------------------------------------------------------- */
+/* ======================================================================
 
-static void * mymalloc(size_t l)
+   System functions (with error report)
+
+   ---------------------------------------------------------------------- */
+
+static void * mf_malloc(size_t l)
 {
   void * ptr = malloc(l);
   if(!ptr)
@@ -307,9 +279,9 @@ static void * mymalloc(size_t l)
   return ptr;
 }
 
-static void * mycalloc(size_t l)
+static void * mf_calloc(size_t l)
 {
-  void * ptr = mymalloc(l);
+  void * ptr = mf_malloc(l);
   if (ptr) memset(ptr,0,l);
   return ptr;
 }
@@ -323,7 +295,7 @@ struct myfile_s {
   uint8_t mode, report;
 };
 
-static int myclose(myfile_t * const mf)
+static int mf_close(myfile_t * const mf)
 {
   assert( mf );
 
@@ -335,12 +307,12 @@ static int myclose(myfile_t * const mf)
     }
     mf->file = 0;
     dmsg("C<%c> %u \"%s\"\n",
-         "ARW+"[mf->mode], (unsigned)mf->len, mf->path);
+         "ARW+"[mf->mode], (uint_t)mf->len, mf->path);
   }
   return 0;
 }
 
-static size_t mytell(myfile_t * const mf)
+static size_t mf_tell(myfile_t * const mf)
 {
   size_t pos = ftell(mf->file);
   if (pos == -1)
@@ -348,7 +320,7 @@ static size_t mytell(myfile_t * const mf)
   return pos;
 }
 
-static size_t myseek(myfile_t * const mf, long offset, int whence)
+static size_t mf_seek(myfile_t * const mf, long offset, int whence)
 {
   if ( fseek(mf->file, offset, whence) ) {
     if (mf->report) syserror(mf->path, "seek error");
@@ -358,7 +330,7 @@ static size_t myseek(myfile_t * const mf, long offset, int whence)
 }
 
 
-static int myopen(myfile_t * const mf, const char * path, int mode)
+static int mf_open(myfile_t * const mf, const char * path, int mode)
 {
   const char * modes[4] = { "ab", "rb", "wb", "rb+" };
 
@@ -367,6 +339,7 @@ static int myopen(myfile_t * const mf, const char * path, int mode)
   assert( *path );
   assert( mode == 1 || mode == 2 );
 
+  memset(mf,0,sizeof(*mf));
   mf->report = 1;
   mf->mode = mode & 3;
   mf->path = path;
@@ -379,11 +352,11 @@ static int myopen(myfile_t * const mf, const char * path, int mode)
 
   switch (mf->mode) {
   case 1:
-    if (-1 == myseek(mf,0,SEEK_END) ||
-        -1 == (mf->len = mytell(mf))  ||
-        -1 == myseek(mf,0,SEEK_SET)) {
+    if (-1 == mf_seek(mf,0,SEEK_END) ||
+        -1 == (mf->len = mf_tell(mf))  ||
+        -1 == mf_seek(mf,0,SEEK_SET)) {
       mf->report = 0;
-      myclose(mf);
+      mf_close(mf);
       return -1;
     }
     break;
@@ -394,12 +367,12 @@ static int myopen(myfile_t * const mf, const char * path, int mode)
   }
 
   dmsg("O<%c> %u \"%s\"\n",
-       "ARW+"[mf->mode], (unsigned)mf->len, mf->path);
+       "ARW+"[mf->mode], (uint_t)mf->len, mf->path);
 
   return 0;
 }
 
-static size_t myread(myfile_t * const mf, void * data, size_t len)
+static size_t mf_read(myfile_t * const mf, void * data, size_t len)
 {
   size_t n;
 
@@ -411,12 +384,12 @@ static size_t myread(myfile_t * const mf, void * data, size_t len)
     if (mf->report)
       syserror(mf->path, "read error");
   } else {
-    dmsg("R<%c> +%u \"%s\"\n",
-         "ARW+"[mf->mode], (unsigned) n, mf->path);
+    /* dmsg("R<%c> +%u \"%s\"\n", */
+    /*      "ARW+"[mf->mode], (uint_t) n, mf->path); */
     if (n != len) {
       if (mf->report)
         emsg("missing input data (%u/%u) -- %s\n\n",
-             (unsigned)n, (unsigned)len, mf->path);
+             (uint_t)n, (uint_t)len, mf->path);
       n = -1;
     }
   }
@@ -424,7 +397,7 @@ static size_t myread(myfile_t * const mf, void * data, size_t len)
   return n;
 }
 
-static size_t mywrite(myfile_t * const mf, const void * data, size_t len)
+static size_t mf_write(myfile_t * const mf, const void * data, size_t len)
 {
   size_t n;
 
@@ -439,12 +412,12 @@ static size_t mywrite(myfile_t * const mf, const void * data, size_t len)
       syserror(mf->path, "write error");
   } else {
     mf->len += n;
-    dmsg("W<%c> +%u =%u \"%s\"\n",
-         "ARW+"[mf->mode], (unsigned) n, (unsigned) mf->len, mf->path);
+    /* dmsg("W<%c> +%u =%u \"%s\"\n", */
+    /*      "ARW+"[mf->mode], (uint_t) n, (uint_t) mf->len, mf->path); */
     if (n != len) {
       if (mf->report)
         emsg("uncompleted write (%u/%u) -- %s\n",
-             (unsigned)n, (unsigned)len, mf->path);
+             (uint_t)n, (uint_t)len, mf->path);
       n = -1;
     }
   }
@@ -454,10 +427,44 @@ static size_t mywrite(myfile_t * const mf, const void * data, size_t len)
 
 
 /* ----------------------------------------------------------------------
- * STf/STe color conversion
- * ---------------------------------------------------------------------- */
+ *  STf/STe color conversion
+ **/
 
-static inline unsigned int ror4(unsigned int c, int shift)
+#if 0
+/* Shifted */
+static const uint8_t stf_to_rgb[16] = {
+  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
+  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
+};
+#elif 1
+/* Left bit replicated */
+static const uint8_t stf_to_rgb[16] = {
+  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC,
+  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC,
+};
+#else
+/* Full range */
+static const uint8_t stf_to_rgb[16] = {
+  0x00,0x24,0x48,0x6D,0x91,0xB6,0xDA,0xFF,
+  0x00,0x24,0x48,0x6D,0x91,0xB6,0xDA,0xFF,
+};
+#endif
+
+#if 0
+/* shifted */
+static const uint8_t ste_to_rgb[16] = {
+  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
+  0x10,0x30,0x50,0x70,0x90,0xB0,0xD0,0xF0,
+};
+#else
+/* Left bit replicated (also full range) */
+static const uint8_t ste_to_rgb[16] = {
+  0x00,0x22,0x44,0x66,0x88,0xAA,0xCC,0xEE,
+  0x11,0x33,0x55,0x77,0x99,0xBB,0xDD,0xFF
+};
+#endif
+
+static inline uint_t ror4(uint_t c, int shift)
 {
   c >>= shift;
   return (((c&1)<<3) | ((c>>1)&7)) << shift ;
@@ -470,6 +477,7 @@ static inline uint16_t ror444(uint16_t rgb4)
 
 static inline uint16_t col444(uint8_t r, uint8_t g, uint8_t b)
 {
+  assert( opt_ste == STE_COL || opt_ste == STF_COL );
   return ( (r&opt_ste)<<4) | (g&opt_ste) | ((b&opt_ste)>>4);
 }
 
@@ -486,35 +494,31 @@ static void myimg_free(myimg_t ** img)
 
 static myimg_t * mypng_init(void)
 {
-  myimg_t * img = mycalloc(sizeof(img->png));
+  myimg_t * img = mf_calloc(sizeof(img->png));
   if (img)
     strcpy((char*)img->png.magic, "PNG");
   return img;
 }
 
-static myimg_t * mypic_from_file(myfile_t * const mf);
+static myimg_t * mypix_from_file(myfile_t * const mf);
 
 static myimg_t * read_img_file(char * iname)
 {
   png_byte header[8];
   myimg_t * img = 0;
   int y;
-
   myfile_t mf;
-  memset(&mf,0,sizeof(mf));
 
-  if (-1 == myopen(&mf, iname, 1))
+  if (-1 == mf_open(&mf, iname, 1))
     goto error;
 
-  if (-1 == myread(&mf, header, 8))
+  if (-1 == mf_read(&mf, header, 8))
     goto error;
 
   if (png_sig_cmp(header, 0, 8)) {
     /* NOT a PNG */
-
-    if (img = mypic_from_file(&mf), !img)
+    if (img = mypix_from_file(&mf), !img)
       goto exit;
-    abort();
   }
 
   else {
@@ -527,7 +531,7 @@ static myimg_t * read_img_file(char * iname)
       goto error;
     png = & img->png;
 
-    png->png = png_create_read_struct(PNG_LIBPNG_VER_STRING,NULL,NULL,NULL);
+    png->png = png_create_read_struct(PNG_LIBPNG_VER_STRING,0,0,0);
     if (!png->png)
       goto png_error;
 
@@ -574,30 +578,27 @@ static myimg_t * read_img_file(char * iname)
              i,png->lut[i].red,png->lut[i].green,png->lut[i].blue,
              col444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
              1 ? "" : " !");
-      }
+    }
 
     png->rows = (png_bytep *)
-    png_malloc(png->png, png->h*(sizeof (png_bytep)));
+      png_malloc(png->png, png->h*(sizeof (png_bytep)));
 
     for (y=0; y<png->h; ++y)
       png->rows[y] = (png_byte *)
         png_malloc(png->png, png_get_rowbytes(png->png,png->inf));
 
     png_read_image(png->png, png->rows);
-
-    goto exit;
-
- png_error:
-      pngerror(iname);
-      goto error;
-
   }
 
+exit:
+  mf_close(&mf);
+  return img;
+
+png_error:
+  pngerror(iname);
 error:
   myimg_free(&img);
-exit:
-  myclose(&mf);
-  return img;
+  goto exit;
 }
 
 
@@ -637,9 +638,37 @@ static char * mypng_ilacestr(mypng_t * png)
 
 /* ----------------------------------------------------------------------
  * PNG get pixels functions
- * ---------------------------------------------------------------------- */
+ **/
 
 typedef uint16_t (*get_f)(mypng_t*, int, int);
+
+static uint16_t get_pix(mypng_t * png, int x, int y)
+{
+  const mypix_t * const pix = (mypix_t *) png;
+
+  const int w = ( pix->w + 15 ) & -16;
+  const int bytes_per_line = ( w << pix->d ) >> 3;
+  const int tile = x >> 4;
+  const int log2_bytes_per_tile = pix->d+1;
+  const int bitnum = ~x & 7;
+  const int nbplans = 1 << pix->d;
+
+  int col, p;
+
+  assert( x < pix->w );
+  assert( y < pix->h );
+
+  /* Using y as offset */
+  y *= bytes_per_line;                  /* line offset */
+  y += tile << log2_bytes_per_tile;     /* tile offset */
+  y += ( x >> 3 ) & 1;                  /* byte offset */
+  y += 34;                              /* skip header */
+
+  for ( col = p = 0; p < nbplans; ++p, y += 2 )
+    col |= ( ( pix->bits[ y ]>> bitnum ) & 1 ) << p;
+  return col;
+}
+
 
 static uint16_t get_gray1(mypng_t * png, int x, int y)
 {
@@ -740,7 +769,9 @@ static uint16_t get_rgba(mypng_t * png, int x, int y)
 }
 
 
-/* ---------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------
+ * Colors and Pixels
+ **/
 
 static int cc_cmp(const void * _a, const void * _b)
 {
@@ -754,24 +785,91 @@ void sort_colorcount(colcnt_t * cc)
   qsort(cc, 0x1000, sizeof(colcnt_t), cc_cmp);
 }
 
-static myimg_t * mypic_alloc(int id)
+static myimg_t * mypix_alloc(int id)
 {
   myimg_t * img;
 
-  assert( (unsigned) id < 6u );
+  assert( (uint_t) id < 6u );
 
-  img = mymalloc(sizeof(mypic_t));
+  img = mf_malloc(sizeof(mypix_t));
   if (img) {
-    strcpy((char*)img->pic.magic, degas[id].name);
-    img->pic.w = degas[id].w;
-    img->pic.h = degas[id].h;
-    img->pic.d = degas[id].d;
+    strcpy((char*)img->pix.magic, degas[id].name);
+    img->pix.w = degas[id].w;
+    img->pix.h = degas[id].h;
+    img->pix.d = degas[id].d;
+    img->pix.c = degas[id].c;
   }
   return img;
 }
 
 
-static myimg_t * mypic_from_file(myfile_t * const mf)
+static int rle_read(myfile_t * mf, myimg_t * img)
+{
+  const int tiles_per_line = img->pix.w >> 4;
+  const int bytes_per_plan = tiles_per_line << 1;
+  const int bytes_per_line = bytes_per_plan << img->pix.d;
+  const int bytes_per_tile = 2 << img->pix.d;
+  uint8_t * dst = img->pix.bits + 34, raw[80];
+  int y,x,z;
+
+  assert( bytes_per_plan <= 80 );
+
+  /* For each line */
+  for ( y=0; y < img->pix.h; ++y, dst += bytes_per_line ) {
+
+    /* For each plan */
+    for ( z=0; z < 1<<img->pix.d; ++z ) {
+      uint8_t * row = dst + (z<<1);
+
+      /* decode an entire bitplan line */
+      for (x=0; x<bytes_per_plan; ) {
+        uint8_t rle[2];
+
+        /* read code + 1 */
+        if ( -1 == mf_read(mf, rle, 2 ) )
+          return -1;
+
+        if (*rle >= 128) {
+          /* Fill 257-rle[0] with rle[1] */
+          const uint8_t v = rle[1];
+          int n = 257 - *rle;
+
+          if (x+n > bytes_per_plan) {
+            emsg("rle-fill overflow line:%d plan:%d byte:%d\n",y,z,x);
+            return -1;
+          }
+          do {
+            raw[x++] = v;
+          } while (--n);
+
+        } else {
+          /* Copy rle[1] and rle[0] more bytes */
+          const int n = *rle + 1;
+          if (x+n > bytes_per_plan) {
+            emsg("rle-copy overflow line:%d plan:%d byte:%d\n",y,z,x);
+            return -1;
+          }
+          if ( -1 == mf_read(mf, raw+x+1, n-1) )
+            return -1;
+          raw[x] = rle[1];
+          x += n;
+        }
+      }
+      assert( x == bytes_per_plan );
+
+      /* For each tile (interlacing) */
+      for (x=0; x<bytes_per_plan; x += 2) {
+        row[0] = raw[x+0];
+        row[1] = raw[x+1];
+        row += bytes_per_tile;
+      }
+    }
+  }
+  return 0;
+}
+
+
+static myimg_t * mypix_from_file(myfile_t * const mf)
 {
   uint8_t hd[34];
   int id, i;
@@ -781,9 +879,9 @@ static myimg_t * mypic_from_file(myfile_t * const mf)
   assert( mf->path );
   assert( mf->mode == 1 );
 
-  if (-1 == myseek(mf,0,SEEK_SET))
+  if (-1 == mf_seek(mf,0,SEEK_SET))
     goto error;
-  if (-1 == myread(mf,hd,34))
+  if (-1 == mf_read(mf,hd,34))
     goto error;
 
   id = (hd[0]<<8) | hd[1];
@@ -791,7 +889,7 @@ static myimg_t * mypic_from_file(myfile_t * const mf)
     if (id == degas[i].id) {
       if (mf->len < degas[i].minsz) {
         emsg("file length (%u) is too short for %s image -- %s\n",
-             (unsigned) mf->len, degas[i].name, mf->path);
+             (uint_t) mf->len, degas[i].name, mf->path);
         return 0;
       }
       break;
@@ -801,17 +899,20 @@ static myimg_t * mypic_from_file(myfile_t * const mf)
     notpng(mf->path);
     return 0;
   }
+  dmsg("%s detected\n", degas[i].name);
 
-  img = mypic_alloc(i);
+  img = mypix_alloc(i);
   if (!img)
     return 0;
-  memcpy(img->pic.bits,hd,34);          /* copy header */
+  memcpy(img->pix.bits,hd,34);          /* copy header */
   if ( ! degas[i].rle ) {
     /* Uncompressed Degas image */
-    if ( -1 == myread(mf,img->pic.bits,32034) )
+    if ( -1 == mf_read(mf, img->pix.bits+34, 32000) )
       goto error;
   } else {
-    abort();
+    /* uncompress on the fly */
+    if ( -1 == rle_read(mf, img))
+      goto error;
   }
 
   return img;
@@ -822,7 +923,7 @@ error:
 }
 
 
-static myimg_t * mypic_from_png(mypng_t * png)
+static myimg_t * mypix_from_png(mypng_t * png)
 {
   static struct {
     int d,c,t;                          /* depth,channel,type */
@@ -885,24 +986,24 @@ static myimg_t * mypic_from_png(mypng_t * png)
     return 0;
   }
 
+  lut[0] = 0;
   for (y=0; y < x; ++y)
     lut[y] = colcnt[y].rgb;
   ncolors = y;
   assert(ncolors == x);
-  for (lutsize = degas[id].lut ; y < lutsize; ++y)
+  for (lutsize = degas[id].c ; y < lutsize; ++y)
     lut[y] = -1;
 
   bytes_per_row  = bytes_per_plan << log2plans;
 
-
   assert( (bytes_per_row * png->h) == 32000 );
 
-  img = mypic_alloc(id);
-  bits   = img->pic.bits;
+  img  = mypix_alloc(id);
+  bits = img->pix.bits;
 
   /* Degas signature */
-  *bits ++ = degas[id].id >> 8;
-  *bits ++ = degas[id].id;
+  *bits++ = degas[id].id >> 8;
+  *bits++ = degas[id].id;
 
   /* Copy palette 16 entries for all formats ! */
   for (y=0; y<lutsize; ++y) {
@@ -922,11 +1023,11 @@ static myimg_t * mypic_from_png(mypng_t * png)
   }
 
   /* Per row */
-  for (y=0; y < img->pic.h; ++y) {
+  for (y=0; y < img->pix.h; ++y) {
     /* Per 16-pixels block */
-    for (x=0; x < img->pic.w; x+=16) {
+    for (x=0; x < img->pix.w; x+=16) {
       /* Per bit-plan */
-      for (z=0; z<(1<<img->pic.d); ++z) {
+      for (z=0; z<(1<<img->pix.d); ++z) {
         unsigned bm, bv;
         /* Per pixel in block */
         for (bv=0, bm=0x8000; bm; ++x, bm >>= 1) {
@@ -943,7 +1044,7 @@ static myimg_t * mypic_from_png(mypng_t * png)
       }
     }
   }
-  assert( bits == img->pic.bits+32034 );
+  assert( bits == img->pix.bits+32034 );
 
   return img;
 }
@@ -966,21 +1067,13 @@ print_buffer(const uint8_t * b, int n, const char * label)
 #endif
 }
 
-/**
- *  RLE encode a single plan of a row.
- *
- * @param  dst destination buffer or 0 for counting only.
- * @param  src source buffer (
- * @param  cnt number of 16-bit word to encode
- * @return encoded size in bytes
- *
- * RLE coding:
- *
- * code: 00..7f copy code+1 byte [1..128]
- *       80..ff repeat next byte 257-code times [2..129]
+/*
+ * RLE coding: code: 00..7f copy code+1 byte [1..128]
+ *                   80..ff fill next byte 257-code times [2..129]
  */
+
 static int
-enc_cpy(uint8_t * d, const uint8_t * s, int l)
+enc_copy(uint8_t * d, const uint8_t * s, int l)
 {
   const uint8_t * const d0 = d;
   while (l > 0) {
@@ -988,6 +1081,7 @@ enc_cpy(uint8_t * d, const uint8_t * s, int l)
     if (n > 128) n = 128;
     l -= n;
     if (d0) {
+      assert( n >= 1 && n <= 128 );
       d[0] = n-1;
       memcpy(d+1,s,n);
       print_buffer(d, n+1, "CPY");
@@ -999,15 +1093,17 @@ enc_cpy(uint8_t * d, const uint8_t * s, int l)
 }
 
 static int
-enc_rpt(uint8_t * d, const uint8_t v, int l)
+enc_fill(uint8_t * d, const uint8_t v, int l)
 {
   const uint8_t * const d0 = d;
   while (l >= 2) {
     int n = l;
     if (n > 129)
-      n = 129 - (n==130);            /* can't have only 1 remaining */
+      /* GB: Ensure at least 2 bytes remaining for the last pass. */
+      n = 129 - (n==130);
     l -= n;
     if (d0) {
+      assert( n >= 2 && n <= 129 );
       d[0] = 257 - n;
       d[1] = v;
       print_buffer(d, 2, "RPT");
@@ -1039,53 +1135,56 @@ pcx_encode_row(uint8_t * dst, const uint8_t * src, int len)
 
     if (l >= 2) {                       /* have some repeat ? */
       if (i > o) {                      /* have something to copy first ? */
-        j += enc_cpy(dst+j, src+o, i-o);
+        j += enc_copy(dst+j, src+o, i-o);
         o = i;
       }
-      j += enc_rpt(dst+j, c, l);
+      j += enc_fill(dst+j, c, l);
       o = i = k;
     }
     i = k;
   }
-  j += enc_cpy(dst+j, src+o, i-o);
+  j += enc_copy(dst+j, src+o, i-o);
 
   print_buffer(dst, j, "ENC");
 
   return j;
 }
 
+#ifdef DEBUG
+
 static int
-rle_decode(uint8_t * d, const uint8_t * s, int l)
+rle_decode(uint8_t * d, int dl, const uint8_t * s, int sl)
 {
   int i,j;
 
-  for (i=j=0; i<l; ) {
+  for (i=j=0; i<sl && j<dl; ) {
     int c = s[i++];
     if (c < 128) {
       /* Copy c+1 byte */
+      if (j+c+1 > dl) {
+        return -1;
+      }
       for (++c; c; --c)
         d[j++] = s[i++];
     } else {
-      /* Repeat 257-c times next byte */
-      uint8_t v = s[i++];
+      /* Fill 257-c times next byte */
+      const uint8_t v = s[i++];
+      if (j+257-c > dl) {
+        return -1;
+      }
       for (c=257-c; --c >= 0;)
         d[j++] = v;
     }
   }
   print_buffer(d,j,"DEC");
-  assert(i==l);
+  assert( i <= sl );
+  assert( j <= dl );
   return j;
 }
 
-/**
- * Save PC? image file.
- *
- * @param  out  output myfile_t
- * @param  pic  picture
- * @retval -1   on error
- * @retval >0   number of bytes saved
- */
-static int save_pcx(myfile_t * out, mypic_t * pic)
+#endif
+
+static int save_as_pcx(myfile_t * out, mypix_t * pic)
 {
   const int bpr = (pic->w>>4) << (pic->d+1); /* bytes per row */
   const int off = 2 << pic->d;       /* offset to next word in plan */
@@ -1096,18 +1195,19 @@ static int save_pcx(myfile_t * out, mypic_t * pic)
 
   /* Write header */
   pic->bits[0] = DEGAS_PC1 >> 8;
-  if (-1 == mywrite(out, pic->bits, 34))
+  pic->magic[1] = 'C';
+  if (-1 == mf_write(out, pic->bits, 34))
     return -1;
 
   /* De-interleave into raw[] and RLE encode into rle[] */
 
-  /* For each row */
+  /* For each line */
   for (y=0; y<pic->h; ++y, pix += bpr) {
     /* For each plan */
     for (z=0; z<(1<<pic->d); ++z) {
       int l;
       const uint8_t * row = pix + (z<<1);
-      /* For each 16-pixels block */
+      /* For each 16-pixels tile */
       for (x=0, r=raw; x<pic->w>>4; ++x) {
         *r++ = row[0];
         *r++ = row[1];
@@ -1116,81 +1216,197 @@ static int save_pcx(myfile_t * out, mypic_t * pic)
       l = pcx_encode_row(rle, raw, r-raw);
 
 #ifdef DEBUG
-      uint8_t xxx[128];
-      int lx = rle_decode(xxx, rle, l);
-      assert(lx == (bpr >> pic->d));
-      assert(!memcmp(raw,xxx,lx));
+      if (1) {
+        uint8_t xxx[80];
+        int lx = rle_decode(xxx, 80, rle, l);
+        assert(lx == bpr >> pic->d) ;
+        assert(!memcmp(raw,xxx,lx));
+      }
 #endif
-      if (-1 == mywrite(out, rle,l))
+      if (-1 == mf_write(out, rle,l))
         return -1;
     }
   }
-  return (int) mytell(out);
+  return (int) mf_tell(out);
 }
 
-/**
- * Save PI? image file.
- *
- * @param  out  output myfile_t
- * @param  pic  picture
- * @retval -1   on error
- * @retval >0   number of bytes saved
- */
-static int save_pix(myfile_t * out, const mypic_t * pic)
+static int save_as_pix(myfile_t * out, const mypix_t * pic)
 {
   const int l = pic->h * ( (pic->w>>4) << (pic->d+1) );
   assert( l==32000 );
-  return -1 == mywrite(out, pic->bits, 34+l)
+  return -1 == mf_write(out, pic->bits, 34+l)
     ? -1
-    : mytell(out)
+    : mf_tell(out)
     ;
 }
 
-static int save_degas(const char * oname, mypic_t * pic)
+static int mypix_save(mypix_t * pix, const char * oname)
 {
   myfile_t out;
   int n;
 
   assert( oname );
-  assert( pic );
+  assert( pix );
 
-  memset(&out,0,sizeof(out));
-
-  if ( -1 == myopen(&out, oname, 2))
+  if ( -1 == mf_open(&out, oname, 2))
     return -1;
 
   n = (opt_pcx == PCX)
-    ? save_pcx(&out,pic)
-    : save_pix(&out,pic)
+    ? save_as_pcx(&out,pix)
+    : save_as_pix(&out,pix)
     ;
 
-  if ( myclose(&out) == -1 || n == -1)
+  if ( mf_close(&out) == -1 || n == -1)
     return -1;
 
-  imsg("output: \"%s\" %dx%dx%d size:%d\n",
-       oname, pic->w, pic->h, 1<<pic->d, (unsigned)n);
+  imsg("output: \"%s\" %dx%dx%d (%s) size:%d\n",
+       oname, pix->w, pix->h, 1<<pix->d, pix->magic, (uint_t)n);
 
   return 0;
+}
+
+static int mypix_save_as_png(mypix_t * pix, char * path)
+{
+  png_structp png_ptr = 0;
+  png_infop info_ptr = 0;
+  png_bytep row;
+  png_byte tmp[160];
+  png_color lut[16];
+
+  int ret=-1, y, x, ste_detect;
+  myfile_t mf;
+
+  const uint8_t * const rgb4to8 =
+    opt_ste == STE_COL ? ste_to_rgb : stf_to_rgb;
+
+  if (-1 == mf_open(&mf,path,2))
+    goto error;
+
+  /* Initialize write structure */
+  png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
+  if (!png_ptr)
+    goto png_error;
+
+  /* Initialize info structure */
+  info_ptr = png_create_info_struct(png_ptr);
+  if (!info_ptr)
+    goto png_error;
+
+  /* Setup Exception handling */
+  if (setjmp(png_jmpbuf(png_ptr)))
+    goto png_error;
+
+  png_init_io(png_ptr, mf.file);
+
+  assert ( pix->c <= sizeof(lut)/sizeof(*lut) );
+  for ( ste_detect = y = 0; y < pix->c; ++y ) {
+    const uint8_t * const st_lut = &pix->bits[2+(y<<1)];
+    const uint16_t st_rgb = (st_lut[0]<<8) | st_lut[1];
+    ste_detect += !!(st_rgb & 0x888);
+    lut[y].red   = rgb4to8[15 & (st_rgb>>8)];
+    lut[y].green = rgb4to8[15 & (st_rgb>>4)];
+    lut[y].blue  = rgb4to8[15 & (st_rgb>>0)];
+    dmsg("#%X %03X %02X-%02X-%02X\n",
+         (uint_t)y, (uint_t)st_rgb & 0xFFF,
+         (uint_t)lut[y].red,(uint_t)lut[y].green,(uint_t) lut[y].blue);
+  }
+
+  switch ( pix->magic[2] ) {
+  case '1':
+    png_set_IHDR(png_ptr, info_ptr, 320, 200,
+                 4, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+
+    if (ste_detect && opt_ste != STE_COL)
+      wmsg("%s: %d color/s using STe mode.\n",
+           path, ste_detect);
+
+    png_set_PLTE(png_ptr,info_ptr,lut,16);
+    png_write_info(png_ptr, info_ptr);
+
+    /* per lines */
+    for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
+
+      memset(tmp,0,160);        /* clear bits so we just have to OR */
+      for (x=0; x<320; ++x) {
+        png_bytep til = &row [ (x>>4<<3) + ((x>>3)&1) ];
+        const int bit = (~x & 7);
+        const int lsl = (bit & 1) << 2;
+
+        tmp [ x >> 1 ] |= 0
+          | ( ( 1 & ( til[0] >> bit ) ) << (lsl+0) )
+          | ( ( 1 & ( til[2] >> bit ) ) << (lsl+1) )
+          | ( ( 1 & ( til[4] >> bit ) ) << (lsl+2) )
+          | ( ( 1 & ( til[6] >> bit ) ) << (lsl+3) )
+          ;
+
+      }
+      png_write_row(png_ptr, tmp);
+    }
+    goto error;
+    break;
+
+  case '2':
+    png_set_IHDR(png_ptr, info_ptr, 640, 200,
+                 2, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+    png_write_info(png_ptr, info_ptr);
+    emsg("Not implemented\n");
+    goto error;
+    break;
+
+  case '3':
+    png_set_IHDR(png_ptr, info_ptr, 640, 400,
+                 1, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+    png_write_info(png_ptr, info_ptr);
+
+    row = pix->bits+34;
+    for (y=0 ; y<400 ; y++, row += 80)
+      png_write_row(png_ptr, row);
+    break;
+
+  default:
+    emsg("internal: Invalid image format -- %s\n",pix->magic);
+    goto error;
+    break;
+  }
+
+  // End write
+  png_write_end(png_ptr, 0);
+  ret = 0;
+
+error:
+  mf_close(&mf);
+  if (!info_ptr) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
+  if (!png_ptr)  png_destroy_write_struct(&png_ptr, (png_infopp)0);
+  /* if (row)       free(row); */
+
+  return ret;
+
+png_error:
+  if (errno)
+    syserror(path,"png error");
+  goto error;
 }
 
 int main(int argc, char *argv[])
 {
   int ecode = E_OK;
 
-  char * iname = NULL;
-  char * oname = NULL;
-
-  myimg_t * img = 0;
-  // myfile_t *inp = 0, * out = 0;
+  char * iname = 0;
+  char * oname = 0;
 
   myfile_t out;
+  myimg_t * src = 0, * dst = 0;
+
   int option_index = 0, c, input_is_png;
   static char me[] = PROGRAM_NAME;
 
   memset(&out,0,sizeof(out));
   argv[0] = me;
-  opterr = 0;                         /* Report error */
-  optind = 1;                         /* Where arguments start */
+  opterr = 0;                           /* Report error */
+  optind = 1;                           /* Where arguments start */
   ecode = E_ARG;
   for (;;) {
     static const char sopts[] = "hV" "vq" "ezr" "d";
@@ -1250,7 +1466,6 @@ int main(int argc, char *argv[])
       goto exit;
     }
   }
-
   if (optind < argc)
     iname = argv[optind++];
   else {
@@ -1266,22 +1481,24 @@ int main(int argc, char *argv[])
     goto exit;
   }
 
+  if (!opt_ste)
+    opt_ste = STF_COL;
+
   /* ----------------------------------------
      Read the input image file.
      ---------------------------------------- */
 
   ecode = E_INP;
-  if (img = read_img_file(iname), !img)
+  if (src = read_img_file(iname), !src)
     goto exit;
 
-
-  input_is_png = img->png.magic[1] == 'N';
+  input_is_png = src->png.magic[1] == 'N';
 
   if (input_is_png) {
     /* Input is a "PNG" */
+    mypng_t * const png = &src->png;
 
-    mypng_t * png = &img->png;
-    assert( !memcmp(img->png.magic,"PNG",3) );
+    assert( !memcmp(src->png.magic,"PNG",3) );
 
     imsg("input: \"%s\" %dx%dx%d type:PNG-%s(%d) chans:%d lut:%d\n",
          basename(iname),
@@ -1291,18 +1508,12 @@ int main(int argc, char *argv[])
       );
 
     ecode = E_PNG;
-    img = mypic_from_png(png);
-    if (!img) {
+    dst = mypix_from_png(png);
+    if (!dst) {
       emsg("unsupported image conversion\n");
       goto exit;
     }
-
-  } else {
-    /* load degas file */
   }
-
-
-
 
   ecode = E_OUT;
 
@@ -1328,7 +1539,7 @@ int main(int argc, char *argv[])
     char * dot = 0;
 
     if (!opt_dir) {
-      oname = mymalloc(l+4);
+      oname = mf_malloc(l+4);
       if (!oname) goto exit;
       strcpy(oname, ibase);
       dot = strrchr(oname, '.');
@@ -1337,48 +1548,95 @@ int main(int argc, char *argv[])
     } else {
       char * obase;
       int fl = strlen(iname);
-      oname = mymalloc(fl+4);
+      oname = mf_malloc(fl+4);
       if (!oname) goto exit;
       strcpy(oname,iname);
       assert( fl >= l );
       obase = oname + fl - l;
-      dmsg("obase: \"%s\"\n", obase);
       dot = strrchr(obase, '.');
       if (dot == obase) dot = 0;
       if (dot == 0) dot = oname + fl;
     }
 
-    assert(dot > oname);
+    assert( dot > oname );
     *dot ++ = '.';
     *dot ++ = 'p';
     if (input_is_png) {
+      assert( dst );
       *dot ++ = "ic"[opt_pcx == PCX];
-      *dot ++ = '3'-img->pic.d;
+      *dot ++ = '3'-dst->pix.d;
     } else {
       *dot ++ = 'n';
       *dot ++ = 'g';
     }
     *dot ++ = 0;
 
-    dmsg("automatic output: \"%s\"\n",oname);
+    dmsg("automatic output: \"%s\"\n", oname);
   }
 
-
   if (input_is_png) {
-    if (save_degas(oname, &img->pic))
+    if (mypix_save(&dst->pix, oname))
       goto exit;
   } else {
-    abort();
+    if (mypix_save_as_png(&src->pix,oname))
+      goto exit;
   }
 
   ecode = E_OK;
 exit:
-  /* if (inp) fclose(inp); */
-  /* if (out) fclose(out); */
-//  mypng_free(png);
-
-
-  myimg_free(&img);
+  myimg_free(&src);
+  myimg_free(&dst);
   dmsg("%s: exit %d\n",PROGRAM_NAME,ecode);
   return ecode;
+}
+
+/* ----------------------------------------------------------------------
+ * Version and Copyright.
+ **/
+
+static void print_version(void)
+{
+  puts(
+    PACKAGE_STRING "\n"
+    "\n"
+    COPYRIGHT ".\n"
+    "License GPLv3+ or later <http://gnu.org/licenses/gpl.html>\n"
+    "This is free software: you are free to change and redistribute it.\n"
+    "There is NO WARRANTY, to the extent permitted by law.\n"
+    "\n"
+    "Written by Benjamin Gerard <https://github.com/benjihan>\n"
+    );
+}
+
+static void print_usage(void)
+{
+  puts(
+    "Usage: " PROGRAM_NAME " [OPTION] <input> [output]\n"
+    "\n"
+    "  A simple PNG to Atari-ST Degas image converter.\n"
+    "\n"
+    "  Despite its name:\n"
+    "   - This program can handle {PI1/PI2/PI3/PC1/PC2/PC3} images.\n"
+    "   - This program can create a PNG image from a Degas image.\n"
+    "\n"
+    "OPTIONS\n"
+    " -h --help --usage   Print this help message and exit.\n"
+    " -V --version        Print version message and exit.\n"
+    " -q --quiet          Print less messages\n"
+    " -v --verbose        Print more messages\n"
+    " -e --ste            Use STE color quantization (4 bits per component)\n"
+    " -z --compress       force image compression (pc1,pc2 or pc3)\n"
+    " -r --raw            force RAW image (pi1,pi2 or pi3)\n"
+    " -d --same-dir       automatic save path includes source path\n"
+    "\n"
+    "If output is omitted the file path is created automatically.\n"
+    "\n"
+    COPYRIGHT ".\n"
+#ifdef PACKAGE_URL
+    "Visit <" PACKAGE_URL ">.\n"
+#endif
+#ifdef PACKAGE_BUG
+    "Report bugs to <" PACKAGE_BUG ">\n"
+#endif
+    );
 }
