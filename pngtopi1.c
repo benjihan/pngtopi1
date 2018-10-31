@@ -594,24 +594,22 @@ error:
   goto exit;
 }
 
-static char * mypng_typestr(mypng_t * png)
+static const char * mypng_typestr(int type)
 {
 # define CASE_COLOR_TYPE(A) case PNG_COLOR_TYPE_##A: return #A
 # define CASE_COLOR_MASK(A) case PNG_COLOR_MASK_##A: return #A
   static char s[8];
-  switch (png->t) {
-
+  switch (type) {
     CASE_COLOR_TYPE(GRAY);           /* (bit depths 1, 2, 4, 8, 16) */
     CASE_COLOR_TYPE(GRAY_ALPHA);     /* (bit depths 8, 16) */
     CASE_COLOR_TYPE(PALETTE);        /* (bit depths 1, 2, 4, 8) */
     CASE_COLOR_TYPE(RGB);            /* (bit_depths 8, 16) */
     CASE_COLOR_TYPE(RGB_ALPHA);      /* (bit_depths 8, 16) */
-
     /* CASE_COLOR_MASK(PALETTE); */
     /* CASE_COLOR_MASK(COLOR); */
     /* CASE_COLOR_MASK(ALPHA); */
   }
-  sprintf(s,"?%02x?", png->t & 255);
+  sprintf(s,"?%02x?", type & 255);
   return s;
 }
 
@@ -679,6 +677,32 @@ static uint16_t get_gray8(const mypng_t * png, int x, int y)
   assert(png->c == 1);
   const png_byte g8 = png->rows[y][x];
   return col444(g8,g8,g8);
+}
+
+static uint16_t get_indexed2(const mypng_t * png, int x, int y)
+{
+  png_color rgb;
+  int idx;
+
+  assert(x < png->w);
+  assert(y < png->h);
+  assert(png->d == 2);
+  assert(png->t == PNG_COLOR_TYPE_PALETTE);
+  assert(png->c == 1);
+
+  switch ( x & 3 ) {
+  case 0: idx = 3 & ( ( png->rows[y][x>>2] ) >> 6 ); break;
+  case 1: idx = 3 & ( ( png->rows[y][x>>2] ) >> 4 ); break;
+  case 2: idx = 3 & ( ( png->rows[y][x>>2] ) >> 2 ); break;
+  case 3: idx = 3 & ( ( png->rows[y][x>>2] ) >> 0 ); break;
+  default:
+    __builtin_unreachable ();
+  }
+
+  assert (png->lut);
+  assert (idx < png->lutsz);
+  rgb = png->lut[idx];
+  return col444(rgb.red,rgb.green,rgb.blue);
 }
 
 static uint16_t get_indexed4(const mypng_t * png, int x, int y)
@@ -758,7 +782,6 @@ static int cc_cmp(const void * _a, const void * _b)
 
 static int lumi(int x)
 {
-  assert( ( x & 0xfff ) == x );
   return 2 * (x & 15) + 4 * ((x>>4)&15) + (x>>8);
 }
 
@@ -929,12 +952,13 @@ static myimg_t * mypix_from_png(mypng_t * png)
     { 1, 1, PNG_COLOR_TYPE_GRAY,    get_gray1    },
     { 4, 1, PNG_COLOR_TYPE_GRAY,    get_gray4    },
     { 8, 1, PNG_COLOR_TYPE_GRAY,    get_gray8    },
+    { 2, 1, PNG_COLOR_TYPE_PALETTE, get_indexed2 },
     { 4, 1, PNG_COLOR_TYPE_PALETTE, get_indexed4 },
     { 8, 1, PNG_COLOR_TYPE_PALETTE, get_indexed8 },
     { 8, 3, PNG_COLOR_TYPE_RGB,     get_rgb      },
     { 8, 4, PNG_COLOR_TYPE_RGBA,    get_rgba     },
     /**/
-    { 0 }
+    { 0,0,0,0 }
   };
 
   myimg_t * img = 0;
@@ -952,7 +976,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
       break;
 
   if (id == 6) {
-    emsg("Incompatible image dimension (%dx%d) -- %s\n",
+    emsg("incompatible image dimension <%dx%d> -- %s\n",
          png->w,png->h,png->path);
     return 0;
   }
@@ -960,12 +984,19 @@ static myimg_t * mypix_from_png(mypng_t * png)
   log2plans = degas[id].d;
   lutmax = 1<<(1<<log2plans);
 
-  for (s=supported; s->d; ++s)
+  dmsg("search for d:%2d c:%2d %s(%d)\n",
+       png->d,png->c,mypng_typestr(png->t),png->t);
+  for (s=supported; s->d; ++s) {
+    dmsg("    versus d:%2d c:%2d %s(%d)\n",
+         s->d,s->c,mypng_typestr(s->t),s->t);
     if (s->d == png->d && s->c == png->c && s->t == png->t)
       break;
+  }
 
-  if (!s->get)
+  if (!s->d) {
+    emsg("incompatible image format -- %s\n",png->path);
     return 0;
+  }
 
   /* count color occurrences */
   for (x=0; x < 0x1000; ++x) {
@@ -981,7 +1012,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
     amsg("color #%02d $%03X %+6d\n", x, colcnt[x].rgb, colcnt[x].cnt);
 
   if (x > lutmax) {
-    emsg("too many colors -- %d > %d", x, lutmax);
+    emsg("too many colors -- %d > %d -- %s", x, lutmax,png->path);
     return 0;
   }
 
@@ -1508,16 +1539,14 @@ int main(int argc, char *argv[])
     imsg("input: \"%s\" %dx%dx%d type:PNG-%s(%d) chans:%d lut:%d\n",
          basename(iname),
          png->w, png->h, png->d,
-         mypng_typestr(png), png->t,
+         mypng_typestr(png->t), png->t,
          png->c, png->lutsz
       );
 
     ecode = E_PNG;
     dst = mypix_from_png(png);
-    if (!dst) {
-      emsg("unsupported image conversion -- %s\n", iname);
+    if (!dst)
       goto exit;
-    }
   }
 
   ecode = E_OUT;
