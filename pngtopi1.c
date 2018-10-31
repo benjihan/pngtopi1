@@ -640,12 +640,10 @@ static char * mypng_ilacestr(mypng_t * png)
  * PNG get pixels functions
  **/
 
-typedef uint16_t (*get_f)(mypng_t*, int, int);
+typedef uint16_t (*get_f)(const mypng_t *, int, int);
 
-static uint16_t get_pix(mypng_t * png, int x, int y)
+static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
 {
-  const mypix_t * const pix = (mypix_t *) png;
-
   const int w = ( pix->w + 15 ) & -16;
   const int bytes_per_line = ( w << pix->d ) >> 3;
   const int tile = x >> 4;
@@ -670,7 +668,7 @@ static uint16_t get_pix(mypng_t * png, int x, int y)
 }
 
 
-static uint16_t get_gray1(mypng_t * png, int x, int y)
+static uint16_t get_gray1(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -682,7 +680,7 @@ static uint16_t get_gray1(mypng_t * png, int x, int y)
   return col444(g8,g8,g8);
 }
 
-static uint16_t get_gray4(mypng_t * png, int x, int y)
+static uint16_t get_gray4(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -694,7 +692,7 @@ static uint16_t get_gray4(mypng_t * png, int x, int y)
   return col444(g8,g8,g8);
 }
 
-static uint16_t get_gray8(mypng_t * png, int x, int y)
+static uint16_t get_gray8(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -705,7 +703,7 @@ static uint16_t get_gray8(mypng_t * png, int x, int y)
   return col444(g8,g8,g8);
 }
 
-static uint16_t get_indexed4(mypng_t * png, int x, int y)
+static uint16_t get_indexed4(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -720,7 +718,7 @@ static uint16_t get_indexed4(mypng_t * png, int x, int y)
   return col444(rgb.red,rgb.green,rgb.blue);
 }
 
-static uint16_t get_indexed8(mypng_t * png, int x, int y)
+static uint16_t get_indexed8(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -738,7 +736,7 @@ static uint16_t get_indexed8(mypng_t * png, int x, int y)
   return col444(rgb.red,rgb.green,rgb.blue);
 }
 
-static uint16_t get_rgb(mypng_t * png, int x, int y)
+static uint16_t get_rgb(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -753,7 +751,7 @@ static uint16_t get_rgb(mypng_t * png, int x, int y)
   return col444(r,g,b);
 }
 
-static uint16_t get_rgba(mypng_t * png, int x, int y)
+static uint16_t get_rgba(const mypng_t * png, int x, int y)
 {
   assert(x < png->w);
   assert(y < png->h);
@@ -1324,6 +1322,7 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
     png_set_PLTE(png_ptr,info_ptr,lut,16);
     png_write_info(png_ptr, info_ptr);
 
+#if 0
     /* per lines */
     for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
 
@@ -1343,6 +1342,14 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
       }
       png_write_row(png_ptr, tmp);
     }
+# else
+    for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
+      memset(tmp,0,160);        /* clear bits so we just have to OR */
+      for (x=0; x<320; x += 2)
+        tmp[x >> 1] = get_st_pixel(pix,x,y) | (get_st_pixel(pix,x+1,y)<<4);
+    }
+#endif
+
     goto error;
     break;
 
