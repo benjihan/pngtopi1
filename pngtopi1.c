@@ -86,10 +86,15 @@ enum {
   PXX = 0, PIX = 1, PCX = 2
 };
 
-/* RGB component mask */
+/* RGB quatitazion methods: it's a bitfield */
 enum {
-  STF_COL = 0xE0,
-  STE_COL = 0xF0,
+  CQ_TBD = 0,                  /* ..00 | To be determined           */
+  CQ_STF = 1,                  /* ..01 | Using 3 bits per component */
+  CQ_STE = 2,                  /* ..10 | Using 4 bits per component */
+
+  CQ_000 = 4,                  /* 01.. | 0 fill                     */
+  CQ_LBR = 8,                  /* 10.. | Left bit replication       */
+  CQ_FDR = 12                  /* 11.. | Full dynamic range         */
 };
 
 /* Degas magic word */
@@ -102,10 +107,10 @@ enum {
   DEGAS_PC3 = DEGAS_PI3+0x8000
 };
 
-static uint8_t opt_ste = 0;     /* mask used color bits (default TBD)*/
-static uint8_t opt_pcx = PXX;   /* {PXX,PIX,PCX} (see enum) */
-static  int8_t opt_bla = 0;     /* blah blah level */
-static uint8_t opt_dir = 0;     /* same dir versus current dir */
+static uint8_t opt_col = CQ_TBD; /* mask used color bits (default TBD)*/
+static uint8_t opt_pcx = PXX;    /* {PXX,PIX,PCX} (see enum) */
+static  int8_t opt_bla = 0;      /* blah blah level */
+static uint8_t opt_dir = 0;      /* same dir versus current dir */
 
 
 typedef unsigned int uint_t;
@@ -113,7 +118,7 @@ typedef unsigned int uint_t;
 typedef struct mypng_s mypng_t;
 struct mypng_s {
   int8_t magic[4];                    /* GB: DO NOT MOVE ME ("PNG") */
-  const char * path;
+  char * path;
   int w, h, d, i, t, c, f, z, p;
   png_structp png;
   png_colorp  lut;
@@ -125,7 +130,7 @@ struct mypng_s {
 typedef struct mypix_s mypix_t;
 struct mypix_s {
   int8_t magic[4];               /* GB: DO NOT MOVE ME ("PI1" ...) */
-  const char * path;
+  char * path;
   int w, h, d, c;                /* width, height, log2(bit-plans) */
   uint8_t bits[32034];           /* uncompressed (include header)  */
 };
@@ -160,7 +165,7 @@ static const struct degasfmt_s {
 
 static void print_version(void);
 static void print_usage(void);
-static int mypix_save(mypix_t * pix, const char * oname);
+static int mypix_save(mypix_t * pix, char * oname);
 
 
 /* ----------------------------------------------------------------------
@@ -175,7 +180,7 @@ static int mypix_save(mypix_t * pix, const char * oname);
 
 #ifndef DEBUG
 
-#define dmsg(FMT,...) (void)
+#define dmsg(FMT,...) (void)0
 
 #else
 static void dmsg(const char * fmt, ...) FMT12;
@@ -217,6 +222,7 @@ static void imsg(const char * fmt, ...)
   }
 }
 
+#if 0
 /* warning message (-q) */
 static void wmsg(const char * fmt, ...) FMT12;
 static void wmsg(const char * fmt, ...)
@@ -230,6 +236,7 @@ static void wmsg(const char * fmt, ...)
     fflush(stderr);
   }
 }
+#endif
 
 /* error message (-qq) */
 static void emsg(const char * fmt, ...) FMT12;
@@ -288,7 +295,7 @@ static void * mf_calloc(size_t l)
 typedef struct myfile_s myfile_t;
 struct myfile_s {
   FILE * file;
-  const char * path;
+  char * path;
   int err;
   size_t len;
   uint8_t mode, report;
@@ -329,7 +336,7 @@ static size_t mf_seek(myfile_t * const mf, long offset, int whence)
 }
 
 
-static int mf_open(myfile_t * const mf, const char * path, int mode)
+static int mf_open(myfile_t * const mf, char * path, int mode)
 {
   const char * modes[4] = { "ab", "rb", "wb", "rb+" };
 
@@ -426,58 +433,135 @@ static size_t mf_write(myfile_t * const mf, const void * data, size_t len)
 
 
 /* ----------------------------------------------------------------------
- *  STf/STe color conversion
+ *  Color conversions
  **/
 
-#if 0
-/* Shifted */
-static const uint8_t stf_to_rgb[16] = {
-  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
-  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
-};
-#elif 1
-/* Left bit replicated */
-static const uint8_t stf_to_rgb[16] = {
-  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC,
-  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC,
-};
-#else
-/* Full range */
-static const uint8_t stf_to_rgb[16] = {
-  0x00,0x24,0x48,0x6D,0x91,0xB6,0xDA,0xFF,
-  0x00,0x24,0x48,0x6D,0x91,0xB6,0xDA,0xFF,
-};
-#endif
+/* Table to convert 4 bits component to 8bits.
+ *
+ * Various method depending on:
+ * - color component  depth STf:3 STe:4
+ * - The left bit fill method (zero,replicated,full-range)
+ */
+static uint8_t col_4to8[16];            /* X -> XX */
 
-#if 0
-/* shifted */
-static const uint8_t ste_to_rgb[16] = {
+/* Table to covert 8 bit color component to 4bit.
+ *
+ * Entries are (444) RGB outputs. The table is fill depending on the
+ * color mode set.
+ */
+static uint16_t rgb_8to4[256];
+
+/* The index of the table match the ST hardware RGB encoding.
+ *
+ *  STe for backward compatibility uses the bits #3,#7,#11 as the
+ *  bit zero of respectively green,blue,red component.
+ */
+
+/* STf: Zero fill */
+static const uint8_t stf_zerofill[16] = {
   0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
-  0x10,0x30,0x50,0x70,0x90,0xB0,0xD0,0xF0,
+  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0
 };
-#else
-/* Left bit replicated (also full range) */
-static const uint8_t ste_to_rgb[16] = {
+
+/* STf: Left bit replicated  */
+static const uint8_t stf_replicated[16] = {
+  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC,
+  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC
+};
+
+/* Stf: Full range */
+static const uint8_t stf_fullrange[16] = {
+  0x00,0x24,0x48,0x6D,0x91,0xB6,0xDA,0xFF,
+  0x00,0x24,0x48,0x6D,0x91,0xB6,0xDA,0xFF
+};
+
+/* STe: Zero fill */
+static const uint8_t ste_zerofill[16] = {
+  0x00,0x20,0x40,0x60,0x80,0xA0,0xC0,0xE0,
+  0x10,0x30,0x50,0x70,0x90,0xB0,0xD0,0xF0
+};
+
+/* STe: Left bit replicated  */
+static const uint8_t ste_replicated[16] = {
   0x00,0x22,0x44,0x66,0x88,0xAA,0xCC,0xEE,
   0x11,0x33,0x55,0x77,0x99,0xBB,0xDD,0xFF
 };
-#endif
 
-static inline uint_t ror4(uint_t c, int shift)
+#define ste_fullrange ste_replicated
+
+/* Convert STe color component to standard order */
+static const uint8_t ste_to_std[16] = {
+  /* ste: 0 1 2 3 4 5 6 7 8 9 A B C D E F
+     std: 0 2 4 6 8 A C E 1 3 5 7 9 B D F */
+  0x0,0x2,0x4,0x6,0x8,0xA,0xC,0xE,
+  0x1,0x3,0x5,0x7,0x9,0xB,0xD,0xF
+};
+
+/* Convert standard 4bit component to STe color component to */
+
+static const uint8_t std_to_ste[16] = {
+  /* std: 0 1 2 3 4 5 6 7 8 9 A B C D E F
+     ste: 0 8 1 9 2 A 3 B 4 C 5 D 6 E 7 F */
+  0x0,0x8,0x1,0x9,0x2,0xA,0x3,0xB,
+  0x4,0xC,0x5,0xD,0x6,0xE,0x7,0xF
+};
+
+static void set_color_mode(int mode)
 {
-  c >>= shift;
-  return (((c&1)<<3) | ((c>>1)&7)) << shift ;
+  const uint8_t * col_used;
+  int i;
+  static const char * lbf_names[] = {
+    "zero fill", "left bit replication", "full range"
+  };
+
+  switch(mode) {
+  default:
+    assert( !"unexpected color mode" );
+  case CQ_TBD:
+  case CQ_STF | CQ_LBR:
+    mode = CQ_STF | CQ_LBR;
+    col_used = stf_replicated;
+    break;
+
+  case CQ_STF | CQ_000:
+    col_used = stf_zerofill;
+    break;
+
+  case CQ_STF | CQ_FDR:
+    col_used = stf_fullrange;
+    break;
+
+  case CQ_STE | CQ_000:
+    col_used = ste_zerofill;
+    break;
+
+  case CQ_STE | CQ_LBR:
+    col_used = ste_replicated;
+    break;
+
+  case CQ_STE | CQ_FDR:
+    col_used = ste_fullrange;
+    break;
+  }
+  memcpy(col_4to8, col_used, 16);
+  opt_col = mode;
+  amsg("Using ST%s colors with %s\n",
+       (mode&3) == CQ_STF ? "":"e", lbf_names[ (mode>>2)-1 ]);
+
+  for ( i=0; i < 256; ++i ) {
+    const uint_t c = std_to_ste[i>>4];
+    rgb_8to4[i] = c|(c<<4)|(c<<8);
+    assert( (rgb_8to4[i] & 0xFFF) == rgb_8to4[i] );
+  }
 }
 
-static inline uint16_t ror444(uint16_t rgb4)
+static inline uint16_t rgb444(uint8_t r, uint8_t g, uint8_t b)
 {
-  return ror4(rgb4,8) | ror4(rgb4,4)  | ror4(rgb4,0);
-}
-
-static inline uint16_t col444(uint8_t r, uint8_t g, uint8_t b)
-{
-  assert( opt_ste == STE_COL || opt_ste == STF_COL );
-  return ( (r&opt_ste)<<4) | (g&opt_ste) | ((b&opt_ste)>>4);
+  return 0
+    | ( rgb_8to4[r] & 0xF00 )
+    | ( rgb_8to4[g] & 0x0F0 )
+    | ( rgb_8to4[b] & 0x00F )
+    ;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -491,7 +575,7 @@ static void myimg_free(myimg_t ** img)
   }
 }
 
-static myimg_t * mypng_init(const char * path)
+static myimg_t * mypng_init(char * path)
 {
   myimg_t * img = mf_calloc(sizeof(img->png));
   if (img) {
@@ -517,13 +601,18 @@ static myimg_t * read_img_file(char * iname)
     goto error;
 
   if (png_sig_cmp(header, 0, 8)) {
-    /* NOT a PNG */
+
+    /* -------------------
+     * Trying Degas format
+     **/
     if (img = mypix_from_file(&mf), !img)
       goto exit;
   }
 
   else {
-    /* PNG magic detected */
+    /* ---------------
+     * Trying with PNG
+     */
 
     mypng_t * png;
 
@@ -569,7 +658,7 @@ static myimg_t * read_img_file(char * iname)
       for (i=0; i<png->lutsz; ++i)
         amsg("%3d #%02X%02X%02X $%03x%s\n",
              i,png->lut[i].red,png->lut[i].green,png->lut[i].blue,
-             col444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
+             rgb444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
              1 ? "" : " !");
     }
 
@@ -617,6 +706,22 @@ static const char * mypng_typestr(int type)
  * PNG get pixels functions
  **/
 
+#define PXL_CHECK(D,T,C)                        \
+  do {                                          \
+    assert ( png );                             \
+    assert( (uint_t)x < (uint_t)png->w );       \
+    assert( (uint_t)y < (uint_t)png->h );       \
+    assert(png->d == (D));                      \
+    assert(png->t == (T));                      \
+    assert(png->c == (C));                      \
+  } while (0)
+
+#define LUT_CHECK(I)             \
+  do {                           \
+    assert( png->lut );          \
+    assert( (I) < png->lutsz );  \
+  } while (0)
+
 typedef uint16_t (*get_f)(const mypng_t *, int, int);
 
 static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
@@ -627,11 +732,10 @@ static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
   const int log2_bytes_per_tile = pix->d+1;
   const int bitnum = ~x & 7;
   const int nbplans = 1 << pix->d;
-
   int col, p;
 
-  assert( x < pix->w );
-  assert( y < pix->h );
+  assert( (uint_t)x < (uint_t)pix->w );
+  assert( (uint_t)y < (uint_t)pix->h );
 
   /* Using y as offset */
   y *= bytes_per_line;                  /* line offset */
@@ -640,132 +744,92 @@ static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
   y += 34;                              /* skip header */
 
   for ( col = p = 0; p < nbplans; ++p, y += 2 )
-    col |= ( ( pix->bits[ y ]>> bitnum ) & 1 ) << p;
+    col |= ( ( pix->bits[ y ] >> bitnum ) & 1 ) << p;
   return col;
 }
 
+/* ----------------------------------------------------------------------
+ *  Gray scale methods
+ **/
 static uint16_t get_gray1(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 1);
-  assert(png->t == PNG_COLOR_TYPE_GRAY);
-  assert(png->c == 1);
-  const png_byte g1 = 1 & ( png->rows[y][x>>3] >> ((x&7)^7) );
-  const png_byte g8 = -g1;
-  return col444(g8,g8,g8);
+  PXL_CHECK(1,PNG_COLOR_TYPE_GRAY,1);
+  return rgb_8to4[(uint8_t)-(1 & ( png->rows[y][x>>3] >> (~x&7) ))];
 }
 
 static uint16_t get_gray4(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 8);
-  assert(png->t == PNG_COLOR_TYPE_GRAY);
-  assert(png->c == 1);
-  const png_byte g4 = 15 & ( png->rows[y][x>>1] >> (((x&1)^1) << 2) );
-  const png_byte g8 = (g4<<4)|g4;
-  return col444(g8,g8,g8);
+  PXL_CHECK(4,PNG_COLOR_TYPE_GRAY,1);
+  return rgb_8to4[col_4to8[15&(png->rows[y][x>>1] >> (((~x&1)) << 2)) ]];
 }
 
 static uint16_t get_gray8(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 8);
-  assert(png->t == PNG_COLOR_TYPE_GRAY);
-  assert(png->c == 1);
-  const png_byte g8 = png->rows[y][x];
-  return col444(g8,g8,g8);
+  PXL_CHECK(8,PNG_COLOR_TYPE_GRAY,1);
+  return rgb_8to4[(uint8_t)png->rows[y][x]];
 }
+
+
+/* ----------------------------------------------------------------------
+ *  Indexed methods
+ **/
 
 static uint16_t get_indexed2(const mypng_t * png, int x, int y)
 {
-  png_color rgb;
-  int idx;
+  png_color * rgb; int idx;
 
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 2);
-  assert(png->t == PNG_COLOR_TYPE_PALETTE);
-  assert(png->c == 1);
-
-  switch ( x & 3 ) {
-  case 0: idx = 3 & ( ( png->rows[y][x>>2] ) >> 6 ); break;
-  case 1: idx = 3 & ( ( png->rows[y][x>>2] ) >> 4 ); break;
-  case 2: idx = 3 & ( ( png->rows[y][x>>2] ) >> 2 ); break;
-  case 3: idx = 3 & ( ( png->rows[y][x>>2] ) >> 0 ); break;
-  default:
-    __builtin_unreachable ();
-  }
-
-  assert (png->lut);
-  assert (idx < png->lutsz);
-  rgb = png->lut[idx];
-  return col444(rgb.red,rgb.green,rgb.blue);
+  PXL_CHECK(2,PNG_COLOR_TYPE_PALETTE,1);
+  idx = 3 & ( ( png->rows[y][x>>2] ) >> ((~x&3)<<1) );
+  LUT_CHECK(idx);
+  rgb = &png->lut[idx];
+  return rgb444(rgb->red,rgb->green,rgb->blue);
 }
 
 static uint16_t get_indexed4(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 4);
-  assert(png->t == PNG_COLOR_TYPE_PALETTE);
-  assert(png->c == 1);
-  const png_byte idx = 15 & ( png->rows[y][x>>1] >> (((x&1)^1) << 2) );
-  png_color rgb;
-  assert (png->lut);
-  assert (idx < png->lutsz);
-  rgb = png->lut[idx];
-  return col444(rgb.red,rgb.green,rgb.blue);
+  png_color * rgb; int idx;
+
+  PXL_CHECK(4,PNG_COLOR_TYPE_PALETTE,1);
+  idx = 15 & ( png->rows[y][x>>1] >> ((~x&1) << 2) );
+  LUT_CHECK(idx);
+  rgb = &png->lut[idx];
+  return rgb444(rgb->red,rgb->green,rgb->blue);
 }
 
 static uint16_t get_indexed8(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 8);
-  assert(png->t == PNG_COLOR_TYPE_PALETTE);
-  assert(png->c == 1);
-  const png_byte idx = png->rows[y][x];
-  png_color rgb;
+  png_color * rgb;
 
-  assert (png->lut);
-  assert (idx < png->lutsz);
-
-  rgb = png->lut[idx];
-
-  return col444(rgb.red,rgb.green,rgb.blue);
+  PXL_CHECK(8,PNG_COLOR_TYPE_PALETTE,1);
+  LUT_CHECK(png->rows[y][x]);
+  rgb = &png->lut[png->rows[y][x]];
+  return rgb444(rgb->red,rgb->green,rgb->blue);
 }
+
+/* ----------------------------------------------------------------------
+ *  Direct colors
+ **/
 
 static uint16_t get_rgb(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 8);
-  assert(png->t == PNG_COLOR_TYPE_RGB);
-  assert(png->c == 3);
+  PXL_CHECK(8,PNG_COLOR_TYPE_RGB,3);
 
   const png_byte r = png->rows[y][x*3+0];
   const png_byte g = png->rows[y][x*3+1];
   const png_byte b = png->rows[y][x*3+2];
 
-  return col444(r,g,b);
+  return rgb444(r,g,b);
 }
 
 static uint16_t get_rgba(const mypng_t * png, int x, int y)
 {
-  assert(x < png->w);
-  assert(y < png->h);
-  assert(png->d == 8);
-  assert(png->t == PNG_COLOR_TYPE_RGBA);
-  assert(png->c == 4);
+  PXL_CHECK(8,PNG_COLOR_TYPE_RGBA,4);
 
   const png_byte r = png->rows[y][x*4+0];
   const png_byte g = png->rows[y][x*4+1];
   const png_byte b = png->rows[y][x*4+2];
 
-  return col444(r,g,b);
+  return rgb444(r,g,b);
 }
 
 
@@ -782,7 +846,12 @@ static int cc_cmp(const void * _a, const void * _b)
 
 static int lumi(int x)
 {
-  return 2 * (x & 15) + 4 * ((x>>4)&15) + (x>>8);
+  int r,g,b;
+  assert( (x & 0xfff) == x );
+  r = ste_to_std[x>>8];
+  g = ste_to_std[(x>>4)&15];
+  b = ste_to_std[x&15];
+  return r*2 + g*4 + b;
 }
 
 static int cl_cmp(const void * _a, const void * _b)
@@ -802,7 +871,7 @@ void sort_colorbright(colcnt_t * cc, int n)
   qsort(cc, n, sizeof(colcnt_t), cl_cmp);
 }
 
-static myimg_t * mypix_alloc(int id, const char * path)
+static myimg_t * mypix_alloc(int id, char * path)
 {
   myimg_t * img;
 
@@ -962,10 +1031,9 @@ static myimg_t * mypix_from_png(mypng_t * png)
   };
 
   myimg_t * img = 0;
-
   uint8_t * bits;
-  int x, y, z, log2plans, lutsize, lutmax, bytes_per_row, ncolors;
-  const int bytes_per_plan = ( (15+png->w) >> 4 ) << 1;
+  int x, y, z, log2plans, lutsiz, lutmax, ncolors;
+
   uint16_t lut[16];
   colcnt_t * const colcnt = g_colcnt;
 
@@ -982,7 +1050,8 @@ static myimg_t * mypix_from_png(mypng_t * png)
   }
 
   log2plans = degas[id].d;
-  lutmax = 1<<(1<<log2plans);
+  lutmax    = 1<<(1<<log2plans);
+  assert( lutmax <= 16 );
 
   dmsg("search for d:%2d c:%2d %s(%d)\n",
        png->d,png->c,mypng_typestr(png->t),png->t);
@@ -999,16 +1068,28 @@ static myimg_t * mypix_from_png(mypng_t * png)
   }
 
   /* count color occurrences */
-  for (x=0; x < 0x1000; ++x) {
+  for ( x=0; x < 0x1000; ++x ) {
     colcnt[x].rgb = x;
     colcnt[x].cnt = 0;
   }
-  for (y=0; y < png->h; ++y)
-    for (x=0; x < png->h; ++x)
+  for ( y=0; y < png->h; ++y )
+    for ( x=0; x < png->w; ++x )
       ++ colcnt[ s->get(png,x,y) ].cnt;
 
+#ifdef DEBUG
+  ncolors = 0;
+  for (y=0; y<0x1000; ++y) {
+    if (colcnt[y].cnt) {
+      assert( y == colcnt[y].rgb );
+      dmsg("color #%02d $%03X is used %5d times\n",
+           ncolors, y, colcnt[y].cnt);
+      ncolors++;
+    }
+  }
+#endif
+
   sort_colorcount(colcnt, 0x1000);
-  for (x=0; x<0x1000 && colcnt[x].cnt; ++x)
+  for ( x=0; x<0x1000 && colcnt[x].cnt; ++x )
     amsg("color #%02d $%03X %+6d\n", x, colcnt[x].rgb, colcnt[x].cnt);
 
   if (x > lutmax) {
@@ -1016,44 +1097,66 @@ static myimg_t * mypix_from_png(mypng_t * png)
     return 0;
   }
 
+  if (x < lutmax)
+    amsg("using only %d colors out of %d\n", x, lutmax);
+
   /* Supporting by brightness is only necessary for P?3 images */
   sort_colorbright(colcnt, x);
+
+#ifdef DEBUG
+  dmsg("Sorted by lumi\n");
+  for (y=0; y < x; ++y) {
+    dmsg("color #%02d $%03X %+6d\n", y, colcnt[y].rgb, colcnt[y].cnt);
+  }
+#endif
 
   lut[0] = 0;
   for (y=0; y < x; ++y)
     lut[y] = colcnt[y].rgb;
   ncolors = y;
-  assert(ncolors == x);
-  for (lutsize = degas[id].c ; y < lutsize; ++y)
-    lut[y] = -1;
+  for (lutsiz = degas[id].c ; y < 16; ++y)
+    lut[y] = 0x0F0;
+  y = ncolors;
 
-  bytes_per_row  = bytes_per_plan << log2plans;
+  assert( (( (((15+png->w)>>4)<<1) << log2plans) * png->h) == 32000 );
 
-  assert( (bytes_per_row * png->h) == 32000 );
-
-  img  = mypix_alloc(id, png->path);
-  if (!img)
+  if (img = mypix_alloc(id, png->path), !img)
     return 0;
+
   bits = img->pix.bits;
 
   /* Degas signature */
   *bits++ = degas[id].id >> 8;
   *bits++ = degas[id].id;
 
-  /* Copy palette 16 entries for all formats ! */
-  for (y=0; y<lutsize; ++y) {
-    unsigned col = ror444(lut[y]);
+  /* Copy palette */
+  for (y=0; y<lutsiz; ++y) {
+    const uint_t col = lut[ y ];
+
+    if ( (col & 0xFFF) != col ) {
+      dmsg( "#%d/%d %x\n",y,lutsiz, col);
+    }
+
+    assert( (col & 0xFFF) == col );
     *bits++ = col >> 8;
     *bits++ = col;
   }
-  bits += (16-lutsize) << 1;
+  if (!y)
+    *bits++ = 0xF, *bits++ = 0xFF, ++y;
+  for (; y<16; ++y) {
+    *bits++ = 0;
+    *bits++ = 0;
+  }
+
+  assert( bits == (img->pix.bits + 34) );
 
   /* Blit pixels */
 
   /* Use color occurence array as reverse table */
+  dmsg("Reverse LUT\n");
   for (y=0; y < ncolors; ++y) {
     int rgb = lut[y];
-    assert(rgb < 0x1000);
+    assert( (rgb & 0xFFF) == rgb );
     colcnt[rgb].rgb = y;
   }
 
@@ -1262,7 +1365,7 @@ static int save_as_pcx(myfile_t * out, mypix_t * pic)
         return -1;
     }
   }
-  return (int) mf_tell(out);
+  return (int) out->len;
 }
 
 static int save_as_pix(myfile_t * out, const mypix_t * pic)
@@ -1271,31 +1374,34 @@ static int save_as_pix(myfile_t * out, const mypix_t * pic)
   assert( l==32000 );
   return -1 == mf_write(out, pic->bits, 34+l)
     ? -1
-    : mf_tell(out)
+    : out->len
     ;
 }
 
-static int mypix_save(mypix_t * pix, const char * oname)
+static int mypix_save(mypix_t * pix, char * oname)
 {
-  myfile_t out;
+  myfile_t mf;
   int n;
 
   assert( oname );
   assert( pix );
 
-  if ( -1 == mf_open(&out, oname, 2))
+  if ( -1 == mf_open(&mf, oname, 2))
     return -1;
 
   n = (opt_pcx == PCX)
-    ? save_as_pcx(&out,pix)
-    : save_as_pix(&out,pix)
+    ? save_as_pcx(&mf,pix)
+    : save_as_pix(&mf,pix)
     ;
 
-  if ( mf_close(&out) == -1 || n == -1)
+  assert( n == mf.len );
+
+  if ( mf_close(&mf) == -1 || n == -1)
     return -1;
 
   imsg("output: \"%s\" %dx%dx%d (%s) size:%d\n",
-       oname, pix->w, pix->h, 1<<pix->d, pix->magic, (uint_t)n);
+       oname, pix->w, pix->h, 1<<pix->d,
+       pix->magic, (int)n);
 
   return 0;
 }
@@ -1310,9 +1416,6 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
 
   int ret=-1, y, x, ste_detect;
   myfile_t mf;
-
-  const uint8_t * const rgb4to8 =
-    opt_ste == STE_COL ? ste_to_rgb : stf_to_rgb;
 
   if (-1 == mf_open(&mf,path,2))
     goto error;
@@ -1338,21 +1441,17 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
     const uint8_t * const st_lut = &pix->bits[2+(y<<1)];
     const uint16_t st_rgb = (st_lut[0]<<8) | st_lut[1];
     ste_detect += !!(st_rgb & 0x888);
-    lut[y].red   = rgb4to8[15 & (st_rgb>>8)];
-    lut[y].green = rgb4to8[15 & (st_rgb>>4)];
-    lut[y].blue  = rgb4to8[15 & (st_rgb>>0)];
+    lut[y].red   = col_4to8[15 & (st_rgb>>8)];
+    lut[y].green = col_4to8[15 & (st_rgb>>4)];
+    lut[y].blue  = col_4to8[15 & (st_rgb>>0)];
     dmsg("#%X %03X %02X-%02X-%02X\n",
          (uint_t)y, (uint_t)st_rgb & 0xFFF,
          (uint_t)lut[y].red,(uint_t)lut[y].green,(uint_t) lut[y].blue);
   }
-  /* Set remaining but #0 to White */
+
+  /* Skip color #0, fill the rest with White */
   for ( y += !y ; y < 16; ++y )
     lut[y].red = lut[y].green = lut[y].blue = 255;
-
-  /* checking if STe color were detect but not set. */
-  if (ste_detect && opt_ste != STE_COL)
-    wmsg("%s: %d color/s using STe mode.\n",
-         path, ste_detect);
 
   switch ( pix->magic[2] ) {
   case '1':
@@ -1368,8 +1467,6 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
         tmp[x >> 1] = ( get_st_pixel(pix,x,y) << 4) | get_st_pixel(pix,x+1,y);
       png_write_row(png_ptr, tmp);
     }
-
-    goto error;
     break;
 
   case '2':
@@ -1410,6 +1507,10 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
     break;
   }
 
+  imsg("output: \"%s\" %dx%dx%d (%s) size:%d\n",
+       mf.path, pix->w, pix->h, 1<<pix->d, pix->magic,
+       (int) ftell(mf.file));
+
   png_write_end(png_ptr, 0);
   ret = 0;
 
@@ -1423,6 +1524,8 @@ error:
 png_error:
   if (errno)
     syserror(path,"png error");
+  else
+    emsg("libpng error -- %s\n",mf.path);
   goto error;
 }
 
@@ -1445,20 +1548,21 @@ int main(int argc, char *argv[])
   optind = 1;                           /* Where arguments start */
   ecode = E_ARG;
   for (;;) {
-    static const char sopts[] = "hV" "vq" "ezr" "d";
+    static const char sopts[] = "hV" "vq" "c:ezr" "d";
     static struct option lopts[] = {
-      {"help",    no_argument, 0, 'h'},
-      {"usage",   no_argument, 0, 'h'},
-      {"version", no_argument, 0, 'V'},
+      {"help",    no_argument,      0, 'h'},
+      {"usage",   no_argument,      0, 'h'},
+      {"version", no_argument,      0, 'V'},
       /**/
-      {"verbose", no_argument, 0, 'v'},
-      {"quiet",   no_argument, 0, 'q'},
+      {"verbose", no_argument,      0, 'v'},
+      {"quiet",   no_argument,      0, 'q'},
       /**/
-      {"ste",     no_argument, 0, 'e'},
-      {"compress",no_argument, 0, 'z'},
-      {"raw",     no_argument, 0, 'r'},
+      {"color",   required_argument,0, 'c'},
+      {"ste",     no_argument,      0, 'e'},
+      {"compress",no_argument,      0, 'z'},
+      {"raw",     no_argument,      0, 'r'},
       /**/
-      {"same-dir",no_argument, 0, 'd'},
+      {"same-dir",no_argument,      0, 'd'},
       /**/
       {0, 0, 0, 0}
     };
@@ -1478,7 +1582,28 @@ int main(int argc, char *argv[])
     case 'v': opt_bla++; break;
     case 'q': opt_bla--; break;
       /**/
-    case 'e': opt_ste = STE_COL; break;
+    case 'c': {
+      int i;
+      static struct { char s[3], m; } modes[] = {
+        { "3z", CQ_STF|CQ_000 },
+        { "3r", CQ_STF|CQ_LBR },
+        { "3f", CQ_STF|CQ_FDR },
+        { "4z", CQ_STE|CQ_000 },
+        { "4r", CQ_STE|CQ_LBR },
+        { "4f", CQ_STE|CQ_FDR },
+      };
+
+      for ( i=0; i<sizeof(modes)/sizeof(*modes); ++i )
+        if ( ! strcasecmp(modes[i].s, optarg ) ) {
+          opt_col = modes[i].m; i = -1; break;
+        }
+      if (i>0) {
+        emsg("invalid argument for -c/--color -- `%s'\n",optarg);
+        ecode = E_ARG;
+        goto exit;
+      }
+    } break;
+    case 'e': opt_col = CQ_STE|CQ_LBR; break;
     case 'z': opt_pcx = PCX; break;
     case 'r': opt_pcx = PIX; break;
       /**/
@@ -1517,8 +1642,7 @@ int main(int argc, char *argv[])
     goto exit;
   }
 
-  if (!opt_ste)
-    opt_ste = STF_COL;
+  set_color_mode(opt_col);
 
   /* ----------------------------------------
      Read the input image file.
@@ -1536,17 +1660,20 @@ int main(int argc, char *argv[])
 
     assert( !memcmp(src->png.magic,"PNG",3) );
 
-    imsg("input: \"%s\" %dx%dx%d type:PNG-%s(%d) chans:%d lut:%d\n",
-         basename(iname),
+    imsg("input: \"%s\" %dx%dx%d PNG-%s(%d)\n",
+         basename(png->path),
          png->w, png->h, png->d,
-         mypng_typestr(png->t), png->t,
-         png->c, png->lutsz
+         mypng_typestr(png->t), png->t
       );
 
     ecode = E_PNG;
     dst = mypix_from_png(png);
     if (!dst)
       goto exit;
+  } else {
+    mypix_t * const pix = &src->pix;
+    imsg("input: \"%s\" %dx%dx%d (%s)\n",
+         basename(pix->path), pix->w, pix->h, 1<<pix->d, pix->magic);
   }
 
   ecode = E_OUT;
@@ -1656,9 +1783,15 @@ static void print_usage(void)
     "OPTIONS\n"
     " -h --help --usage   Print this help message and exit.\n"
     " -V --version        Print version message and exit.\n"
-    " -q --quiet          Print less messages\n"
-    " -v --verbose        Print more messages\n"
-    " -e --ste            Use STE color quantization (4 bits per component)\n"
+    " -q --quiet          Print less messages.\n"
+    " -v --verbose        Print more messages.\n"
+    " -c --color=XY       Select color conversion method.\n"
+    "                      X := `3' or `4' is the color depth\n"
+    "                      Y := how to map 3/4 bits component to 8bits\n"
+    "                           `z': zero        $3 -> $60 or $60\n"
+    "                           `r': replicated  $3 -> $6C or $66\n"
+    "                           `f': full range  $3 -> $6D or $66\n"
+    " -e --ste            Alias for --color=4r\n"
     " -z --compress       force image compression (pc1,pc2 or pc3)\n"
     " -r --raw            force RAW image (pi1,pi2 or pi3)\n"
     " -d --same-dir       automatic save path includes source path\n"
