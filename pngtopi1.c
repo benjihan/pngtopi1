@@ -751,10 +751,19 @@ static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
 /* ----------------------------------------------------------------------
  *  Gray scale methods
  **/
+
 static uint16_t get_gray1(const mypng_t * png, int x, int y)
 {
   PXL_CHECK(1,PNG_COLOR_TYPE_GRAY,1);
   return rgb_8to4[(uint8_t)-(1 & ( png->rows[y][x>>3] >> (~x&7) ))];
+}
+
+static uint16_t get_gray2(const mypng_t * png, int x, int y)
+{
+  int g2;
+  PXL_CHECK(2,PNG_COLOR_TYPE_GRAY,1);
+  g2 = 3 & ( ( png->rows[y][x>>2] ) >> ((~x&3)<<1) );
+  return rgb_8to4[(g2<<2)|g2];
 }
 
 static uint16_t get_gray4(const mypng_t * png, int x, int y)
@@ -1019,6 +1028,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
   } *s, supported[] = {
     /* 320 x 200 */
     { 1, 1, PNG_COLOR_TYPE_GRAY,    get_gray1    },
+    { 2, 1, PNG_COLOR_TYPE_GRAY,    get_gray2    },
     { 4, 1, PNG_COLOR_TYPE_GRAY,    get_gray4    },
     { 8, 1, PNG_COLOR_TYPE_GRAY,    get_gray8    },
     { 2, 1, PNG_COLOR_TYPE_PALETTE, get_indexed2 },
