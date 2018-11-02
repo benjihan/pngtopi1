@@ -652,13 +652,18 @@ static uint16_t get_gray2(const mypng_t * png, int x, int y)
   int g2;
   PXL_CHECK(2,PNG_COLOR_TYPE_GRAY,1);
   g2 = 3 & ( ( png->rows[y][x>>2] ) >> ((~x&3)<<1) );
-  return rgb_8to4[(g2<<2)|g2];
+  g2 |= (g2<<2);
+  g2 |= (g2<<4);
+  return rgb444(g2,g2,g2);
 }
 
 static uint16_t get_gray4(const mypng_t * png, int x, int y)
 {
+  int g4;
   PXL_CHECK(4,PNG_COLOR_TYPE_GRAY,1);
-  return rgb_8to4[col_4to8[15&(png->rows[y][x>>1] >> (((~x&1)) << 2)) ]];
+  g4 = 15 & ( png->rows[y][x>>1] >> (((~x&1)) << 2));
+  g4 |= g4 << 4;
+  return rgb444(g4,g4,g4);
 }
 
 static uint16_t get_gray8(const mypng_t * png, int x, int y)
@@ -1444,7 +1449,7 @@ static int save_pix_as(mypix_t * pix, char * path, int type)
     return -1;
 
   imsg("output: \"%s\" %dx%dx%d (%s) size:%d\n",
-       path, pix->w, pix->h, 1<<pix->d,
+       path, pix->w, pix->h, 1<<(1<<pix->d),
        pix->magic, (int)n);
 
   return 0;
@@ -1711,7 +1716,7 @@ int main(int argc, char *argv[])
 
     assert( !memcmp(src->png.magic,"PNG",3) );
     imsg("input: \"%s\" %dx%dx%d PNG-%s(%d)\n",
-         basename(png->path), png->w, png->h, png->d,
+         basename(png->path), png->w, png->h, 1<<png->d,
          mypng_typestr(png->t), png->t);
     ecode = E_PNG;
     if (cvt = mypix_from_png(png), !cvt)
@@ -1863,7 +1868,7 @@ static int save_img_as(myimg_t * img, char * path, int type)
     return -1;
 
   if (type == PNG) {
-    if (save_png_as(pix,opath))
+    if (save_png_as(pix, opath))
       goto exit;
   } else {
     if (save_pix_as(pix, opath, type) )
