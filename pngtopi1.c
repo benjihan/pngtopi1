@@ -83,10 +83,14 @@ enum {
 
 /* For opt_pcx */
 enum {
-  PXX = 0, PIX = 1, PCX = 2
+  PXX = 0, PIX = 1, PCX = 2, PNG = 3
 };
 
-/* RGB quatitazion methods: it's a bitfield */
+static const char type_names[][4] = {
+  "P??","PI?","PC?","PNG"
+};
+
+/* RGB conversion methods (bit-field) */
 enum {
   CQ_TBD = 0,                  /* ..00 | To be determined           */
   CQ_STF = 1,                  /* ..01 | Using 3 bits per component */
@@ -108,18 +112,31 @@ enum {
 };
 
 static uint8_t opt_col = CQ_TBD; /* mask used color bits (default TBD)*/
-static uint8_t opt_pcx = PXX;    /* {PXX,PIX,PCX} (see enum) */
+static uint8_t opt_out = PXX;    /* {PXX,PIX,PCX,PNG} (see enum) */
 static  int8_t opt_bla = 0;      /* blah blah level */
 static uint8_t opt_dir = 0;      /* same dir versus current dir */
 
-
 typedef unsigned int uint_t;
+
+typedef struct myfile_s myfile_t;
+struct myfile_s {
+  FILE * file;
+  char * path;
+  int err;
+  size_t len;
+  uint8_t mode, report;
+};
+
+#define IMG_COMMON                              \
+  int8_t magic[4];                              \
+  char * path;                                  \
+  int    type, w, h, d, c
 
 typedef struct mypng_s mypng_t;
 struct mypng_s {
-  int8_t magic[4];                    /* GB: DO NOT MOVE ME ("PNG") */
-  char * path;
-  int w, h, d, i, t, c, f, z, p;
+  IMG_COMMON;
+
+  int i, t, f, z, p;
   png_structp png;
   png_colorp  lut;
   int         lutsz;
@@ -129,9 +146,7 @@ struct mypng_s {
 
 typedef struct mypix_s mypix_t;
 struct mypix_s {
-  int8_t magic[4];               /* GB: DO NOT MOVE ME ("PI1" ...) */
-  char * path;
-  int w, h, d, c;                /* width, height, log2(bit-plans) */
+  IMG_COMMON;
   uint8_t bits[32034];           /* uncompressed (include header)  */
 };
 
@@ -163,9 +178,14 @@ static const struct degasfmt_s {
  * Forward declarations
  **/
 
-static void print_version(void);
+static char *create_output_path(char * ipath, const char * ext);
+static int guess_type_from_path(char * path);
+static int save_img_as(myimg_t * img, char * path, int type);
+static int save_pix_as(mypix_t * pix, char * path, int type);
+static int save_png_as(mypix_t * pix, char * path);
+static myimg_t * mypix_from_file(myfile_t * const mf);
 static void print_usage(void);
-static int mypix_save(mypix_t * pix, char * oname);
+static void print_version(void);
 
 
 /* ----------------------------------------------------------------------
@@ -222,7 +242,6 @@ static void imsg(const char * fmt, ...)
   }
 }
 
-#if 0
 /* warning message (-q) */
 static void wmsg(const char * fmt, ...) FMT12;
 static void wmsg(const char * fmt, ...)
@@ -236,7 +255,6 @@ static void wmsg(const char * fmt, ...)
     fflush(stderr);
   }
 }
-#endif
 
 /* error message (-qq) */
 static void emsg(const char * fmt, ...) FMT12;
@@ -252,11 +270,11 @@ static void emsg(const char * fmt, ...)
   }
 }
 
-static void syserror(const char * iname, const char * alt)
+static void syserror(const char * ipath, const char * alt)
 {
   const char * estr = errno ? strerror(errno) : alt;
-  if (iname)
-    emsg("(%d) %s -- %s\n", errno, estr, iname);
+  if (ipath)
+    emsg("(%d) %s -- %s\n", errno, estr, ipath);
   else
     emsg("%s\n", estr);
 }
@@ -271,11 +289,12 @@ static void pngerror(const char * path)
   syserror(path,"libpng error");
 }
 
-/* ======================================================================
 
-   System functions (with error report)
-
-   ---------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------
+ |
+ | System functions (with error report)
+ |
+ * ---------------------------------------------------------------------- */
 
 static void * mf_malloc(size_t l)
 {
@@ -292,14 +311,18 @@ static void * mf_calloc(size_t l)
   return ptr;
 }
 
-typedef struct myfile_s myfile_t;
-struct myfile_s {
-  FILE * file;
-  char * path;
-  int err;
-  size_t len;
-  uint8_t mode, report;
-};
+static char * mf_strdup(const char * s, int len_or_0)
+{
+  char * d;
+  if (!len_or_0)
+    len_or_0 = strlen(s)+1;
+  assert(len_or_0 > 0);
+  if (d = mf_malloc(len_or_0), d) {
+    strncpy(d,s,len_or_0);
+    d[len_or_0-1] = 0;
+  }
+  return d;
+}
 
 static int mf_close(myfile_t * const mf)
 {
@@ -431,10 +454,11 @@ static size_t mf_write(myfile_t * const mf, const void * data, size_t len)
   return n;
 }
 
-
 /* ----------------------------------------------------------------------
- *  Color conversions
- **/
+ |
+ | Color conversions
+ |
+ * ---------------------------------------------------------------------- */
 
 /* Table to convert 4 bits component to 8bits.
  *
@@ -564,147 +588,12 @@ static inline uint16_t rgb444(uint8_t r, uint8_t g, uint8_t b)
     ;
 }
 
-/* ---------------------------------------------------------------------- */
-
-static void myimg_free(myimg_t ** img)
-{
-  assert( img );
-  if (*img) {
-    free(*img);
-    *img = 0;
-  }
-}
-
-static myimg_t * mypng_init(char * path)
-{
-  myimg_t * img = mf_calloc(sizeof(img->png));
-  if (img) {
-    strcpy((char*)img->png.magic, "PNG");
-    img->png.path = path ? path : "<mypng>";
-  }
-  return img;
-}
-
-static myimg_t * mypix_from_file(myfile_t * const mf);
-
-static myimg_t * read_img_file(char * iname)
-{
-  png_byte header[8];
-  myimg_t * img = 0;
-  int y;
-  myfile_t mf;
-
-  if (-1 == mf_open(&mf, iname, 1))
-    goto error;
-
-  if (-1 == mf_read(&mf, header, 8))
-    goto error;
-
-  if (png_sig_cmp(header, 0, 8)) {
-
-    /* -------------------
-     * Trying Degas format
-     **/
-    if (img = mypix_from_file(&mf), !img)
-      goto exit;
-  }
-
-  else {
-    /* ---------------
-     * Trying with PNG
-     */
-
-    mypng_t * png;
-
-    img = mypng_init(iname);
-    if (!img)
-      goto error;
-    png = & img->png;
-
-    png->png = png_create_read_struct(PNG_LIBPNG_VER_STRING,0,0,0);
-    if (!png->png)
-      goto png_error;
-
-    png->inf = png_create_info_struct(png->png);
-    if (!png->inf)
-      goto png_error;
-
-    if (setjmp(png_jmpbuf(png->png)))
-      goto png_error;
-
-    png_init_io(png->png,mf.file);
-    png_set_sig_bytes(png->png,8);
-    png_read_info(png->png, png->inf);
-
-    png->w = png_get_image_width(png->png, png->inf);
-    png->h = png_get_image_height(png->png, png->inf);
-    png->d = png_get_bit_depth(png->png, png->inf);
-    png->t = png_get_color_type(png->png, png->inf);
-    png->i = png_get_interlace_type(png->png, png->inf);
-    png->z = png_get_compression_type(png->png, png->inf);
-    png->f = png_get_filter_type(png->png,png->inf);
-    png->c = png_get_channels(png->png, png->inf);
-    png->p = png_set_interlace_handling(png->png);
-    png_read_update_info(png->png, png->inf);
-
-    /* read file */
-    if (setjmp(png_jmpbuf(png->png)))
-      goto png_error;
-
-    png_get_PLTE(png->png, png->inf, &png->lut, &png->lutsz);
-    if (png->lutsz) {
-      int i;
-      amsg("PNG color look-up table has %d entries:\n", png->lutsz);
-      for (i=0; i<png->lutsz; ++i)
-        amsg("%3d #%02X%02X%02X $%03x%s\n",
-             i,png->lut[i].red,png->lut[i].green,png->lut[i].blue,
-             rgb444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
-             1 ? "" : " !");
-    }
-
-    png->rows = (png_bytep *)
-      png_malloc(png->png, png->h*(sizeof (png_bytep)));
-
-    for (y=0; y<png->h; ++y)
-      png->rows[y] = (png_byte *)
-        png_malloc(png->png, png_get_rowbytes(png->png,png->inf));
-
-    png_read_image(png->png, png->rows);
-  }
-
-exit:
-  mf_close(&mf);
-  return img;
-
-png_error:
-  pngerror(iname);
-error:
-  myimg_free(&img);
-  goto exit;
-}
-
-static const char * mypng_typestr(int type)
-{
-# define CASE_COLOR_TYPE(A) case PNG_COLOR_TYPE_##A: return #A
-# define CASE_COLOR_MASK(A) case PNG_COLOR_MASK_##A: return #A
-  static char s[8];
-  switch (type) {
-    CASE_COLOR_TYPE(GRAY);           /* (bit depths 1, 2, 4, 8, 16) */
-    CASE_COLOR_TYPE(GRAY_ALPHA);     /* (bit depths 8, 16) */
-    CASE_COLOR_TYPE(PALETTE);        /* (bit depths 1, 2, 4, 8) */
-    CASE_COLOR_TYPE(RGB);            /* (bit_depths 8, 16) */
-    CASE_COLOR_TYPE(RGB_ALPHA);      /* (bit_depths 8, 16) */
-    /* CASE_COLOR_MASK(PALETTE); */
-    /* CASE_COLOR_MASK(COLOR); */
-    /* CASE_COLOR_MASK(ALPHA); */
-  }
-  sprintf(s,"?%02x?", type & 255);
-  return s;
-}
-
 /* ----------------------------------------------------------------------
- * PNG get pixels functions
- **/
+ |
+ | Pixel functions.
+ |
+ * ---------------------------------------------------------------------- */
+
 
 #define PXL_CHECK(D,T,C)                        \
   do {                                          \
@@ -841,10 +730,149 @@ static uint16_t get_rgba(const mypng_t * png, int x, int y)
   return rgb444(r,g,b);
 }
 
-
 /* ----------------------------------------------------------------------
- * Colors and Pixels
- **/
+ |
+ | Image functions.
+ |
+ * ---------------------------------------------------------------------- */
+
+static void myimg_free(myimg_t ** img)
+{
+  assert( img );
+  if (*img) {
+    free(*img);
+    *img = 0;
+  }
+}
+
+static myimg_t * mypng_init(char * path)
+{
+  myimg_t * img = mf_calloc(sizeof(img->png));
+  if (img) {
+    strcpy((char*)img->png.magic, "PNG");
+    img->png.path = path ? path : "<mypng>";
+    img->png.type = PNG;
+  }
+  return img;
+}
+
+static myimg_t * read_img_file(char * ipath)
+{
+  png_byte header[8];
+  myimg_t * img = 0;
+  int y;
+  myfile_t mf;
+
+  if (-1 == mf_open(&mf, ipath, 1))
+    goto error;
+
+  if (-1 == mf_read(&mf, header, 8))
+    goto error;
+
+  if (png_sig_cmp(header, 0, 8)) {
+
+    /* -------------------
+     * Trying Degas format
+     **/
+    if (img = mypix_from_file(&mf), !img)
+      goto exit;
+  }
+
+  else {
+    /* ---------------
+     * Trying with PNG
+     */
+
+    mypng_t * png;
+
+    img = mypng_init(ipath);
+    if (!img)
+      goto error;
+    png = & img->png;
+
+    png->png = png_create_read_struct(PNG_LIBPNG_VER_STRING,0,0,0);
+    if (!png->png)
+      goto png_error;
+
+    png->inf = png_create_info_struct(png->png);
+    if (!png->inf)
+      goto png_error;
+
+    if (setjmp(png_jmpbuf(png->png)))
+      goto png_error;
+
+    png_init_io(png->png,mf.file);
+    png_set_sig_bytes(png->png,8);
+    png_read_info(png->png, png->inf);
+
+    png->w = png_get_image_width(png->png, png->inf);
+    png->h = png_get_image_height(png->png, png->inf);
+    png->d = png_get_bit_depth(png->png, png->inf);
+    png->t = png_get_color_type(png->png, png->inf);
+    png->i = png_get_interlace_type(png->png, png->inf);
+    png->z = png_get_compression_type(png->png, png->inf);
+    png->f = png_get_filter_type(png->png,png->inf);
+    png->c = png_get_channels(png->png, png->inf);
+    png->p = png_set_interlace_handling(png->png);
+    png_read_update_info(png->png, png->inf);
+
+    /* read file */
+    if (setjmp(png_jmpbuf(png->png)))
+      goto png_error;
+
+    png_get_PLTE(png->png, png->inf, &png->lut, &png->lutsz);
+    if (png->lutsz) {
+      const png_byte m = (opt_col&3) == CQ_STE ? ~0xF0 : ~0xE0;
+      int i;
+
+      amsg("PNG color look-up table has %d entries:\n", png->lutsz);
+      for (i=0; i<png->lutsz; ++i)
+        amsg(
+          "%3d #%02X%02X%02X $%03x #%02X%02X%02X\n",
+          i,png->lut[i].red,png->lut[i].green,png->lut[i].blue,
+          rgb444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
+          png->lut[i].red&m, png->lut[i].green&m, png->lut[i].blue&m);
+    }
+
+    png->rows = (png_bytep *)
+      png_malloc(png->png, png->h*(sizeof (png_bytep)));
+
+    for (y=0; y<png->h; ++y)
+      png->rows[y] = (png_byte *)
+        png_malloc(png->png, png_get_rowbytes(png->png,png->inf));
+
+    png_read_image(png->png, png->rows);
+  }
+
+exit:
+  mf_close(&mf);
+  return img;
+
+png_error:
+  pngerror(ipath);
+error:
+  myimg_free(&img);
+  goto exit;
+}
+
+static const char * mypng_typestr(int type)
+{
+# define CASE_COLOR_TYPE(A) case PNG_COLOR_TYPE_##A: return #A
+# define CASE_COLOR_MASK(A) case PNG_COLOR_MASK_##A: return #A
+  static char s[8];
+  switch (type) {
+    CASE_COLOR_TYPE(GRAY);           /* (bit depths 1, 2, 4, 8, 16) */
+    CASE_COLOR_TYPE(GRAY_ALPHA);     /* (bit depths 8, 16) */
+    CASE_COLOR_TYPE(PALETTE);        /* (bit depths 1, 2, 4, 8) */
+    CASE_COLOR_TYPE(RGB);            /* (bit_depths 8, 16) */
+    CASE_COLOR_TYPE(RGB_ALPHA);      /* (bit_depths 8, 16) */
+    /* CASE_COLOR_MASK(PALETTE); */
+    /* CASE_COLOR_MASK(COLOR); */
+    /* CASE_COLOR_MASK(ALPHA); */
+  }
+  sprintf(s,"?%02x?", type & 255);
+  return s;
+}
 
 static int cc_cmp(const void * _a, const void * _b)
 {
@@ -894,6 +922,7 @@ static myimg_t * mypix_alloc(int id, char * path)
     img->pix.d = degas[id].d;
     img->pix.c = degas[id].c;
     img->pix.path = path ? path :"<mypix>";
+    img->pix.type = degas[id].rle ? PCX : PIX;
   }
   return img;
 }
@@ -1091,7 +1120,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
   for (y=0; y<0x1000; ++y) {
     if (colcnt[y].cnt) {
       assert( y == colcnt[y].rgb );
-      dmsg("color #%02d $%03X is used %5d times\n",
+      dmsg(" #%02d $%03X is used %5d times\n",
            ncolors, y, colcnt[y].cnt);
       ncolors++;
     }
@@ -1099,8 +1128,9 @@ static myimg_t * mypix_from_png(mypng_t * png)
 #endif
 
   sort_colorcount(colcnt, 0x1000);
+
   for ( x=0; x<0x1000 && colcnt[x].cnt; ++x )
-    amsg("color #%02d $%03X %+6d\n", x, colcnt[x].rgb, colcnt[x].cnt);
+    dmsg(" #%02d $%03X %+6d\n", x, colcnt[x].rgb, colcnt[x].cnt);
 
   if (x > lutmax) {
     emsg("too many colors -- %d > %d -- %s", x, lutmax,png->path);
@@ -1116,7 +1146,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
 #ifdef DEBUG
   dmsg("Sorted by lumi\n");
   for (y=0; y < x; ++y) {
-    dmsg("color #%02d $%03X %+6d\n", y, colcnt[y].rgb, colcnt[y].cnt);
+    dmsg(" #%02d $%03X %+6d\n", y, colcnt[y].rgb, colcnt[y].cnt);
   }
 #endif
 
@@ -1342,8 +1372,9 @@ static int save_as_pcx(myfile_t * out, mypix_t * pic)
   const uint8_t * pix = pic->bits+34;
 
   /* Write header */
-  pic->bits[0] = DEGAS_PC1 >> 8;
+  pic->type = PCX;
   pic->magic[1] = 'C';
+  pic->bits[0] = DEGAS_PC1 >> 8;
   if (-1 == mf_write(out, pic->bits, 34))
     return -1;
 
@@ -1378,28 +1409,31 @@ static int save_as_pcx(myfile_t * out, mypix_t * pic)
   return (int) out->len;
 }
 
-static int save_as_pix(myfile_t * out, const mypix_t * pic)
+static int save_as_pix(myfile_t * out, mypix_t * pic)
 {
   const int l = pic->h * ( (pic->w>>4) << (pic->d+1) );
+
   assert( l==32000 );
+  pic->type = PIX;
+  pic->magic[1] = 'I';
   return -1 == mf_write(out, pic->bits, 34+l)
     ? -1
     : out->len
     ;
 }
 
-static int mypix_save(mypix_t * pix, char * oname)
+static int save_pix_as(mypix_t * pix, char * path, int type)
 {
   myfile_t mf;
   int n;
 
-  assert( oname );
+  assert( path );
   assert( pix );
 
-  if ( -1 == mf_open(&mf, oname, 2))
+  if ( -1 == mf_open(&mf, path, 2))
     return -1;
 
-  n = (opt_pcx == PCX)
+  n = (type == PCX)
     ? save_as_pcx(&mf,pix)
     : save_as_pix(&mf,pix)
     ;
@@ -1410,19 +1444,20 @@ static int mypix_save(mypix_t * pix, char * oname)
     return -1;
 
   imsg("output: \"%s\" %dx%dx%d (%s) size:%d\n",
-       oname, pix->w, pix->h, 1<<pix->d,
+       path, pix->w, pix->h, 1<<pix->d,
        pix->magic, (int)n);
 
   return 0;
 }
 
-static int mypix_save_as_png(mypix_t * pix, char * path)
+static int save_png_as(mypix_t * pix, char * path)
 {
   png_structp png_ptr = 0;
   png_infop info_ptr = 0;
   png_bytep row;
   png_byte tmp[160];
   png_color lut[16];
+  int png_type;
 
   int ret=-1, y, x, ste_detect;
   myfile_t mf;
@@ -1466,8 +1501,9 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
   switch ( pix->magic[2] ) {
   case '1':
     assert( pix->w == 320 && pix->h == 200 && pix->d == 2 && pix->c == 16 );
+    png_type = PNG_COLOR_TYPE_PALETTE;
     png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
-                 1<<pix->d, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
+                 1<<pix->d, png_type, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_set_PLTE(png_ptr,info_ptr,lut,pix->c);
     png_write_info(png_ptr, info_ptr);
@@ -1481,6 +1517,7 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
 
   case '2':
     assert( pix->w == 640 && pix->h == 200 && pix->d == 1 && pix->c == 4 );
+    png_type = PNG_COLOR_TYPE_PALETTE;
     png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
                  1<<pix->d, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
@@ -1501,6 +1538,7 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
 
   case '3':
     assert( pix->w == 640 && pix->h == 400 && pix->d == 0 && pix->c == 0 );
+    png_type = PNG_COLOR_TYPE_GRAY;
     png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
                  1, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
@@ -1517,8 +1555,9 @@ static int mypix_save_as_png(mypix_t * pix, char * path)
     break;
   }
 
-  imsg("output: \"%s\" %dx%dx%d (%s) size:%d\n",
-       mf.path, pix->w, pix->h, 1<<pix->d, pix->magic,
+  imsg("output: \"%s\" %dx%dx%d (PNG/%s) size:%d\n",
+       mf.path, pix->w, pix->h,1<<(1<<pix->d),
+       mypng_typestr(png_type),
        (int) ftell(mf.file));
 
   png_write_end(png_ptr, 0);
@@ -1542,21 +1581,17 @@ png_error:
 int main(int argc, char *argv[])
 {
   int ecode = E_OK;
+  char *ipath = 0, *opath = 0;
+  myimg_t *src = 0, *cvt = 0;
 
-  char * iname = 0;
-  char * oname = 0;
-
-  myfile_t out;
-  myimg_t * src = 0, * dst = 0;
-
-  int option_index = 0, c, input_is_png;
+  int option_index = 0, c, itype;
   static char me[] = PROGRAM_NAME;
 
-  memset(&out,0,sizeof(out));
   argv[0] = me;
   opterr = 0;                           /* Report error */
   optind = 1;                           /* Where arguments start */
   ecode = E_ARG;
+
   for (;;) {
     static const char sopts[] = "hV" "vq" "c:ezr" "d";
     static struct option lopts[] = {
@@ -1614,8 +1649,8 @@ int main(int argc, char *argv[])
       }
     } break;
     case 'e': opt_col = CQ_STE|CQ_LBR; break;
-    case 'z': opt_pcx = PCX; break;
-    case 'r': opt_pcx = PIX; break;
+    case 'z': opt_out = PCX; break;
+    case 'r': opt_out = PIX; break;
       /**/
     case 'd': opt_dir = 1; break;
     case 000: break;
@@ -1637,15 +1672,16 @@ int main(int argc, char *argv[])
       goto exit;
     }
   }
+
   if (optind < argc)
-    iname = argv[optind++];
+    ipath = argv[optind++];
   else {
     emsg("too few arguments. Try --help.\n");
     goto exit;
   }
 
   if (optind < argc)
-    oname = argv[optind++];
+    opath = argv[optind++];
 
   if (optind < argc) {
     emsg("too many arguments. Try --help.\n");
@@ -1659,106 +1695,187 @@ int main(int argc, char *argv[])
      ---------------------------------------- */
 
   ecode = E_INP;
-  if (src = read_img_file(iname), !src)
+  if (src = read_img_file(ipath), !src)
     goto exit;
+  itype = src->png.type;
 
-  input_is_png = src->png.magic[1] == 'N';
+  amsg("Loaded as %dx%dx%d(%d) %s/%s(%d) \"%s\"\n",
+       src->png.w, src->png.h, src->png.d,
+       src->png.c, src->png.magic,
+       type_names[itype&3], itype,
+       src->png.path );
+  assert( !memcmp(src->png.magic, type_names[itype&3], 2) );
 
-  if (input_is_png) {
-    /* Input is a "PNG" */
+  if (itype == PNG) {
     mypng_t * const png = &src->png;
 
     assert( !memcmp(src->png.magic,"PNG",3) );
-
     imsg("input: \"%s\" %dx%dx%d PNG-%s(%d)\n",
-         basename(png->path),
-         png->w, png->h, png->d,
-         mypng_typestr(png->t), png->t
-      );
-
+         basename(png->path), png->w, png->h, png->d,
+         mypng_typestr(png->t), png->t);
     ecode = E_PNG;
-    dst = mypix_from_png(png);
-    if (!dst)
+    if (cvt = mypix_from_png(png), !cvt)
       goto exit;
-  } else {
+
+  }
+  else {
     mypix_t * const pix = &src->pix;
+
     imsg("input: \"%s\" %dx%dx%d (%s)\n",
          basename(pix->path), pix->w, pix->h, 1<<pix->d, pix->magic);
+
+    /* Default operation for P[IC][123] is PNG */
+    if (opt_out == PXX)
+      opt_out = PNG;
   }
 
   ecode = E_OUT;
-
-  /* When given an output filename but compression was not specified
-   * try to guess the compression from the filename extension.
-   */
-  if (input_is_png && oname && opt_pcx == PXX) {
-    const char * ext = strrchr(basename(oname),'.');
-    if (ext && strlen(ext)==4) {
-      const char p = tolower(ext[1]);
-      const char c = tolower(ext[2]);
-      const char x = ext[3];
-      opt_pcx = (p == 'p' && c == 'c' && x >= '1' && x <= '3')
-        ? PCX
-        : PIX;
-      dmsg("guessed compression: %s\n", opt_pcx == PCX ? "rle" : "raw");
-    }
-  }
-
-  if (!oname) {
-    const char * ibase = basename(iname);
-    const int l = strlen(ibase);
-    char * dot = 0;
-
-    if (!opt_dir) {
-      oname = mf_malloc(l+4);
-      if (!oname) goto exit;
-      strcpy(oname, ibase);
-      dot = strrchr(oname, '.');
-      if (dot == oname) dot = 0;
-      if (dot == 0) dot = oname + l;
-    } else {
-      char * obase;
-      int fl = strlen(iname);
-      oname = mf_malloc(fl+4);
-      if (!oname) goto exit;
-      strcpy(oname,iname);
-      assert( fl >= l );
-      obase = oname + fl - l;
-      dot = strrchr(obase, '.');
-      if (dot == obase) dot = 0;
-      if (dot == 0) dot = oname + fl;
-    }
-
-    assert( dot > oname );
-    *dot ++ = '.';
-    *dot ++ = 'p';
-    if (input_is_png) {
-      assert( dst );
-      *dot ++ = "ic"[opt_pcx == PCX];
-      *dot ++ = '3'-dst->pix.d;
-    } else {
-      *dot ++ = 'n';
-      *dot ++ = 'g';
-    }
-    *dot ++ = 0;
-
-    dmsg("automatic output: \"%s\"\n", oname);
-  }
-
-  if (input_is_png) {
-    if (mypix_save(&dst->pix, oname))
-      goto exit;
-  } else {
-    if (mypix_save_as_png(&src->pix,oname))
-      goto exit;
-  }
+  if ( save_img_as(cvt?cvt:src, opath, opt_out) )
+    goto exit;
 
   ecode = E_OK;
 exit:
   myimg_free(&src);
-  myimg_free(&dst);
+  myimg_free(&cvt);
+
   dmsg("%s: exit %d\n",PROGRAM_NAME,ecode);
   return ecode;
+}
+
+
+static char *create_output_path(char * ipath, const char * ext)
+{
+  const char * ibase = basename(ipath);
+  const int l = strlen(ibase), le = strlen(ext);
+  char *opath = 0, *dot = 0;
+
+  assert( ipath );
+  assert( ext );
+  assert( *ext == '.' && ext[1] == 'p' );
+  assert( *ipath );
+
+  dmsg("Create output from \"%s\" (%s)\n", ipath, ext);
+
+  if (!opt_dir) {
+    if (opath = mf_strdup(ibase,l+le), !opath) return 0;
+    dot = strrchr(opath, '.');
+    if (dot == opath) dot = 0;        /* extension can not be start */
+    if (dot == 0) dot = opath + l;    /* no extension ? dot is end */
+  } else {
+    char * obase;
+    const int fl = strlen(ipath);
+    if (opath = mf_strdup(ipath, fl+le), !opath) return 0;
+    assert( fl >= l );
+    obase = opath + fl - l;           /* basename() by rewinding */
+    dot = strrchr(obase, '.');
+    if (dot == obase) dot = 0;        /* extension can not be start */
+    if (dot == 0) dot = opath + fl;   /* no extension ? dot is end */
+  }
+  assert( dot > opath );
+  strcpy( dot, ext);
+
+
+  dmsg("automatic output: \"%s\"\n", opath);
+  return opath;
+}
+
+static const char * native_extension(int type, int subtype)
+{
+  switch (type) {
+  case PNG:
+    return ".png";
+  case PIX:
+    switch(subtype) {
+    case '1': return ".pi1";
+    case '2': return ".pi2";
+    case '3': return ".pi3";
+    }
+    break;
+  case PCX:
+    switch(subtype) {
+    case '1': return ".pc1";
+    case '2': return ".pc2";
+    case '3': return ".pc3";
+    }
+    break;
+
+  default:
+    assert( !"unexpected image type" );
+    break;
+  }
+  return "";
+}
+
+static int guess_type_from_path(char * path)
+{
+  const char * ext;
+
+  if (path && (ext = strrchr(basename(path),'.')) && strlen(ext) == 4)
+    if (tolower(ext[1]) == 'p') {
+      if (tolower(ext[2]) == 'n' && tolower(ext[3]) == 'g')
+        return PNG;
+      else if (ext[3] >= '1' && ext[3] <= '3') {
+        if (tolower(ext[2]) == 'i')
+          return PIX;
+        else if ( tolower(ext[2]) == 'c')
+          return PCX;
+      }
+    }
+  return PXX;
+}
+
+static int save_img_as(myimg_t * img, char * path, int type)
+{
+  mypix_t * const pix = &img->pix;
+  char * opath;
+  int err = -1, guess_type;
+
+  assert( img );
+  assert( pix->type == PIX || pix->type == PCX );
+
+  dmsg("save_img_as("
+       "%dx%dx%d/%s,"
+       "\"%s\","
+       "%s(%d)\n",
+       pix->w,pix->w,1<<(1<<pix->d),type_names[pix->type],
+       path?path:"(nil)",type_names[type],type);
+
+  guess_type = guess_type_from_path(path);
+  dmsg("guessed type: %s(%d)\n",type_names[guess_type],guess_type);
+
+  if (guess_type != PXX)
+    amsg("provided output suggests %s\n", type_names[guess_type]);
+
+  if ( type == PXX )
+    /* Input was a PNG and no operation was specified. Trying to guess
+     * from filename (if any) or default to PIX. */
+    type = guess_type != PXX ? guess_type : PIX;
+
+  if ( guess_type != PXX && guess_type != type )
+      wmsg("provided output (%s) mismatched (%s)\n",
+           type_names[guess_type], type_names[type]);
+
+  assert( type != PXX );
+  opath = path ? path :
+    create_output_path(pix->path,
+                       native_extension(type, img->pix.magic[2]));
+  if (!opath)
+    return -1;
+
+  if (type == PNG) {
+    if (save_png_as(pix,opath))
+      goto exit;
+  } else {
+    if (save_pix_as(pix, opath, type) )
+      goto exit;
+  }
+
+  err = 0;
+exit:
+  if (opath != path)
+    free(opath);
+
+  return err;
 }
 
 /* ----------------------------------------------------------------------
@@ -1786,9 +1903,9 @@ static void print_usage(void)
     "\n"
     "  A simple PNG to Atari-ST Degas image converter.\n"
     "\n"
-    "  Despite its name:\n"
-    "   - This program can handle {PI1/PI2/PI3/PC1/PC2/PC3} images.\n"
-    "   - This program can create a PNG image from a Degas image.\n"
+    "  Despite its name the program can use PNG,PC?,PI?\n"
+    "  as both input and output. Any conversion is possible\n"
+    "  as long as the image formats are compatible (WxHxD).\n"
     "\n"
     "OPTIONS\n"
     " -h --help --usage   Print this help message and exit.\n"
@@ -1802,11 +1919,14 @@ static void print_usage(void)
     "                           `r': replicated  $3 -> $6C or $66\n"
     "                           `f': full range  $3 -> $6D or $66\n"
     " -e --ste            Alias for --color=4r\n"
-    " -z --compress       force image compression (pc1,pc2 or pc3)\n"
-    " -r --raw            force RAW image (pi1,pi2 or pi3)\n"
+    " -z --compress       Force output as a pc1, pc2 or pc2\n"
+    " -r --raw            Force output as a pi1, pi2 or pi2\n"
     " -d --same-dir       automatic save path includes source path\n"
     "\n"
     "If output is omitted the file path is created automatically.\n"
+    "The default operation is to create a PI? for a PNG input and PNG\n"
+    "for a Degas input. Unless `-z' or `-r' is specified or output\n"
+    "suggest otherwise.\n"
     "\n"
     COPYRIGHT ".\n"
 #ifdef PACKAGE_URL
