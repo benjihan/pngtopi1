@@ -1609,8 +1609,8 @@ int main(int argc, char *argv[])
       /**/
       {"color",   required_argument,0, 'c'},
       {"ste",     no_argument,      0, 'e'},
-      {"compress",no_argument,      0, 'z'},
-      {"raw",     no_argument,      0, 'r'},
+      {"pcx",     no_argument,      0, 'z'},
+      {"pix",     no_argument,      0, 'r'},
       /**/
       {"same-dir",no_argument,      0, 'd'},
       /**/
@@ -1649,13 +1649,29 @@ int main(int argc, char *argv[])
         }
       if (i>0) {
         emsg("invalid argument for -c/--color -- `%s'\n",optarg);
-        ecode = E_ARG;
         goto exit;
       }
     } break;
     case 'e': opt_col = CQ_STE|CQ_LBR; break;
-    case 'z': opt_out = PCX; break;
+
+    case 'z':
+      if (opt_out == PXX || opt_out == PCX)
+        opt_out = PCX;
+      else {
+        emsg("option `-z' and `-r' are exclusive\n");
+        goto exit;
+      }
+      break;
+
     case 'r': opt_out = PIX; break;
+      if (opt_out == PXX || opt_out == PIX)
+        opt_out = PIX;
+      else {
+        emsg("option `-z' and `-r' are exclusive\n");
+        goto exit;
+      }
+      break;
+
       /**/
     case 'd': opt_dir = 1; break;
     case 000: break;
@@ -1904,34 +1920,72 @@ static void print_version(void)
 static void print_usage(void)
 {
   puts(
-    "Usage: " PROGRAM_NAME " [OPTION] <input> [output]\n"
+    "Usage: " PROGRAM_NAME " [OPTION] <input> [<output>]\n"
     "\n"
-    "  A simple PNG to Atari-ST Degas image converter.\n"
+    "  PNG/Degas image file converter.\n"
     "\n"
     "  Despite its name the program can use PNG,PC?,PI?\n"
     "  as both input and output. Any conversion is possible\n"
-    "  as long as the image formats are compatible (WxHxD).\n"
+    "  as long as the image formats are compatible.\n"
     "\n"
     "OPTIONS\n"
     " -h --help --usage   Print this help message and exit.\n"
     " -V --version        Print version message and exit.\n"
     " -q --quiet          Print less messages.\n"
     " -v --verbose        Print more messages.\n"
-    " -c --color=XY       Select color conversion method.\n"
-    "                      X := `3' or `4' is the color depth\n"
-    "                      Y := how to map 3/4 bits component to 8bits\n"
-    "                           `z': zero        $3 -> $60 or $60\n"
-    "                           `r': replicated  $3 -> $6C or $66\n"
-    "                           `f': full range  $3 -> $6D or $66\n"
-    " -e --ste            Alias for --color=4r\n"
-    " -z --compress       Force output as a pc1, pc2 or pc2\n"
-    " -r --raw            Force output as a pi1, pi2 or pi2\n"
-    " -d --same-dir       automatic save path includes source path\n"
+    " -c --color=XY       Select color conversion method (see below).\n"
+    " -e --ste            Alias for --color=4r.\n"
+    " -z --pcx            Force output as a pc1, pc2 or pc3.\n"
+    " -r --pix            Force output as a pi1, pi2 or pi3.\n"
+    " -d --same-dir       Automatic save path includes <input> path.\n"
     "\n"
-    "If output is omitted the file path is created automatically.\n"
-    "The default operation is to create a PI? for a PNG input and PNG\n"
-    "for a Degas input. Unless `-z' or `-r' is specified or output\n"
-    "suggest otherwise.\n"
+
+    "When creating Degas image the `<input>` image resolution is used to\n"
+    "select the `<output>` type.\n"
+    "\n"
+    " - `PI1` / `PC1` images are `320x200x16` colors\n"
+    " - `PI2` / `PC2` images are `640x200x4` colors\n"
+    " - `PI3` / `PC3` images are `640x400x2` monochrome (B&W)\n"
+    "\n"
+    "Automatic output name:\n"
+    "\n"
+    " - If `<output>` is omitted the file path is created automatically.\n"
+    " - If the `--same-dir` option is omitted the output path is the\n"
+    "   current working directory. Otherwise it is the same as the input\n"
+    "   file.\n"
+    " - The filename part of the `<output>` path is the `<input>` filename\n"
+    "   with its dot extension replaced by the output format natural dot\n"
+    "   extension.\n"
+    "\n"
+    "Output type:\n"
+    "\n"
+    " - If `--pix` or `--pcx` is specified the `<output>` is respectively\n"
+    " a raw (`PI?`) or rle compressed (`PC?`) Degas image whatever the\n"
+    " `<input>`.\n"
+    " - If `<input>` is a `PNG` image the default is to create a `PI?`\n"
+    "   image unless a provided `<output>` suggest otherwise.\n"
+    " - If `<input>` is a Degas  image the default is to create a `PNG`\n"
+    "   image unless a provided `<output>` suggest otherwise.\n"
+    " - If `pntopi1` detects a discrepancy between a provided `<output>`\n"
+    "   filename extension and what is really going to be written then it\n"
+    "   issues a warning but still process as requested. Use `-q` to\n"
+    "   remove the warning.\n"
+    "\n"
+    "Color conversion mode:\n"
+    "\n"
+    " - The `X` parameter decides if a Degas image will use 3 or 4 bits\n"
+    "   per color component.  The consequence might be the lost of a\n"
+    "   precious colormap entry in some (rare) cases if the provided input\n"
+    "   image was not created accordingly.\n"
+    "\n"
+    " - The `Y` parameter picks the method used to upscale 3/4 bits color\n"
+    "   component to 8 bits.\n"
+    "\n"
+    "   | `Y` |       Name |          Description |             Example |\n"
+    "   |-----|------------|----------------------|---------------------|\n"
+    "   | `z` | Zero-fill  | Simple Left shift.   | `$3 -> 3:$60 4:$60` |\n"
+    "   | `r` | Replicated | Replicate left bits  | `$3 -> 3:$6C 4:$66` |\n"
+    "   | `f` | Full-range | Ensure full range    | `$3 -> 3:$6D 4:$66` |\n"
     "\n"
     COPYRIGHT ".\n"
 #ifdef PACKAGE_URL
