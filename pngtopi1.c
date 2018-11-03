@@ -1938,8 +1938,8 @@ static void print_usage(void)
     " -z --pcx            Force output as a pc1, pc2 or pc3.\n"
     " -r --pix            Force output as a pi1, pi2 or pi3.\n"
     " -d --same-dir       Automatic save path includes <input> path.\n"
-    "\n"
-
+    );
+  puts(
     "When creating Degas image the `<input>` image resolution is used to\n"
     "select the `<output>` type.\n"
     "\n"
@@ -1956,7 +1956,8 @@ static void print_usage(void)
     " - The filename part of the `<output>` path is the `<input>` filename\n"
     "   with its dot extension replaced by the output format natural dot\n"
     "   extension.\n"
-    "\n"
+    );
+  puts(
     "Output type:\n"
     "\n"
     " - If `--pix` or `--pcx` is specified the `<output>` is respectively\n"
@@ -1970,7 +1971,8 @@ static void print_usage(void)
     "   filename extension and what is really going to be written then it\n"
     "   issues a warning but still process as requested. Use `-q` to\n"
     "   remove the warning.\n"
-    "\n"
+    );
+  puts(
     "Color conversion mode:\n"
     "\n"
     " - The `X` parameter decides if a Degas image will use 3 or 4 bits\n"
@@ -1986,7 +1988,8 @@ static void print_usage(void)
     "   | `z` | Zero-fill  | Simple Left shift.   | `$3 -> 3:$60 4:$60` |\n"
     "   | `r` | Replicated | Replicate left bits  | `$3 -> 3:$6C 4:$66` |\n"
     "   | `f` | Full-range | Ensure full range    | `$3 -> 3:$6D 4:$66` |\n"
-    "\n"
+    );
+  puts(
     COPYRIGHT ".\n"
 #ifdef PACKAGE_URL
     "Visit <" PACKAGE_URL ">.\n"
