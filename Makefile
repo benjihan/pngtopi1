@@ -70,7 +70,19 @@ endif
 
 target   := $(PACKAGE)
 
-override CPPFLAGS += -DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"'
+override DEFS=\
+-DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"' \
+-DPACKAGE_URL='"https://github.com/benjihan/pngtopi1"'
+
+ifeq ($(or $D,0),0)
+override DEFS += -DNDEBUG=1
+CFLAGS = -Ofast
+else
+override DEFS += -DDEBUG=1
+CFLAGS = -O0 -g
+endif
+
+override CPPFLAGS += $(DEFS)
 override CFLAGS   += $(PNGCLAGS)
 override LDLIBS   += $(PNGLIBS)
 
