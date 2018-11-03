@@ -102,7 +102,8 @@ clean: ; -rm -f -- $(target)
 
 dist_dir := $(PACKAGE)-$(VERSION)
 dist_arc = $(dist_dir).tar.xz
-dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c
+dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c	\
+_build/compile
 
 dist: distrib
 distcheck: dist-check
