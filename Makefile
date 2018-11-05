@@ -68,7 +68,7 @@ endif
 #  Build variables
 # ----------------------------------------------------------------------
 
-target   := $(PACKAGE)
+target   := $(PACKAGE)$(EXE)
 
 override DEFS=\
 -DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"' \
@@ -83,7 +83,7 @@ CFLAGS = -O0 -g
 endif
 
 override CPPFLAGS += $(DEFS)
-override CFLAGS   += $(PNGCLAGS)
+override CFLAGS   += $(PNGCFLAGS)
 override LDLIBS   += $(PNGLIBS)
 
 # ----------------------------------------------------------------------
@@ -95,6 +95,11 @@ all: $(target)
 
 clean: ; -rm -f -- $(target)
 .PHONY: clean
+
+ifneq ($(EXE),)
+$(target): $(PACKAGE)
+	mv -- "$<" "$@"
+endif
 
 # ----------------------------------------------------------------------
 #  Distrib

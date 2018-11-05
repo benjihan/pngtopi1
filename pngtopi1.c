@@ -53,26 +53,30 @@
 #  endif
 # endif
 
-#define __GNU_sOURCE
+#define _GNU_SOURCE 1
 
 #endif /* HAVE_CONFIG_H */
 
 /* ---------------------------------------------------------------------- */
 
-/* libpng */
-#include <png.h>
 
 /* std */
 #include <assert.h>
 #include <stdarg.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdint.h>
 #include "ctype.h"
 #include <getopt.h>
 #include <errno.h>
-#include <libgen.h>
+
+#ifdef __MINGW32__
+#include <libgen.h> /* GB: mingw does not have basename() in string.h  */
+#endif
+
+/* libpng */
+#include <png.h>
 
 /* ---------------------------------------------------------------------- */
 
@@ -1626,8 +1630,8 @@ int main(int argc, char *argv[])
       break;
     switch (c)
     {
-    case 'h': print_usage(); goto exit;
-    case 'V': print_version(); goto exit;
+    case 'h': print_usage(); ecode = E_OK; goto exit;
+    case 'V': print_version(); ecode = E_OK; goto exit;
       /**/
     case 'v': opt_bla++; break;
     case 'q': opt_bla--; break;
@@ -1940,54 +1944,54 @@ static void print_usage(void)
     " -d --same-dir       Automatic save path includes <input> path.\n"
     );
   puts(
-    "When creating Degas image the `<input>` image resolution is used to\n"
-    "select the `<output>` type.\n"
+    "When creating Degas image the <input> image resolution is used to\n"
+    "select the <output> type.\n"
     "\n"
-    " - `PI1` / `PC1` images are `320x200x16` colors\n"
-    " - `PI2` / `PC2` images are `640x200x4` colors\n"
-    " - `PI3` / `PC3` images are `640x400x2` monochrome (B&W)\n"
+    " - PI1 / PC1 images are 320x200x16 colors\n"
+    " - PI2 / PC2 images are 640x200x4 colors\n"
+    " - PI3 / PC3 images are 640x400x2 monochrome (B&W)\n"
     "\n"
     "Automatic output name:\n"
     "\n"
-    " - If `<output>` is omitted the file path is created automatically.\n"
-    " - If the `--same-dir` option is omitted the output path is the\n"
+    " - If <output> is omitted the file path is created automatically.\n"
+    " - If the --same-dir option is omitted the output path is the\n"
     "   current working directory. Otherwise it is the same as the input\n"
     "   file.\n"
-    " - The filename part of the `<output>` path is the `<input>` filename\n"
+    " - The filename part of the <output> path is the <input> filename\n"
     "   with its dot extension replaced by the output format natural dot\n"
     "   extension.\n"
     );
   puts(
     "Output type:\n"
     "\n"
-    " - If `--pix` or `--pcx` is specified the `<output>` is respectively\n"
-    " a raw (`PI?`) or rle compressed (`PC?`) Degas image whatever the\n"
-    " `<input>`.\n"
-    " - If `<input>` is a `PNG` image the default is to create a `PI?`\n"
-    "   image unless a provided `<output>` suggest otherwise.\n"
-    " - If `<input>` is a Degas  image the default is to create a `PNG`\n"
-    "   image unless a provided `<output>` suggest otherwise.\n"
-    " - If `pntopi1` detects a discrepancy between a provided `<output>`\n"
+    " - If --pix or --pcx is specified the <output> is respectively\n"
+    " a raw (PI?) or rle compressed (PC?) Degas image whatever the\n"
+    " <input>.\n"
+    " - If <input> is a PNG image the default is to create a PI?\n"
+    "   image unless a provided <output> suggest otherwise.\n"
+    " - If <input> is a Degas  image the default is to create a PNG\n"
+    "   image unless a provided <output> suggest otherwise.\n"
+    " - If pntopi1 detects a discrepancy between a provided <output>\n"
     "   filename extension and what is really going to be written then it\n"
-    "   issues a warning but still process as requested. Use `-q` to\n"
+    "   issues a warning but still process as requested. Use -q to\n"
     "   remove the warning.\n"
     );
   puts(
     "Color conversion mode:\n"
     "\n"
-    " - The `X` parameter decides if a Degas image will use 3 or 4 bits\n"
+    " - The X parameter decides if a Degas image will use 3 or 4 bits\n"
     "   per color component.  The consequence might be the lost of a\n"
     "   precious colormap entry in some (rare) cases if the provided input\n"
     "   image was not created accordingly.\n"
     "\n"
-    " - The `Y` parameter picks the method used to upscale 3/4 bits color\n"
+    " - The Y parameter picks the method used to upscale 3/4 bits color\n"
     "   component to 8 bits.\n"
     "\n"
-    "   | `Y` |       Name |          Description |             Example |\n"
-    "   |-----|------------|----------------------|---------------------|\n"
-    "   | `z` | Zero-fill  | Simple Left shift.   | `$3 -> 3:$60 4:$60` |\n"
-    "   | `r` | Replicated | Replicate left bits  | `$3 -> 3:$6C 4:$66` |\n"
-    "   | `f` | Full-range | Ensure full range    | `$3 -> 3:$6D 4:$66` |\n"
+    "   | Y |       Name |          Description |           Example |\n"
+    "   |---|------------|----------------------|-------------------|\n"
+    "   | z | Zero-fill  | Simple Left shift.   | $3 -> 3:$60 4:$60 |\n"
+    "   | r | Replicated | Replicate left bits  | $3 -> 3:$6C 4:$66 |\n"
+    "   | f | Full-range | Ensure full range    | $3 -> 3:$6D 4:$66 |\n"
     );
   puts(
     COPYRIGHT ".\n"
