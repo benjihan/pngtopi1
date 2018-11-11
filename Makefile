@@ -68,7 +68,8 @@ endif
 #  Build variables
 # ----------------------------------------------------------------------
 
-target   := $(PACKAGE)$(EXE)
+target    := $(PACKAGE)
+targetexe := $(target)$(EXE)
 
 override DEFS=\
 -DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"' \
@@ -90,14 +91,14 @@ override LDLIBS   += $(PNGLIBS)
 #  Rules
 # ----------------------------------------------------------------------
 
-all: $(target)
+all: $(targetexe)
 .PHONY: all
 
-clean: ; -rm -f -- $(target)
+clean: ; -rm -f -- $(target) $(targetexe)
 .PHONY: clean
 
-ifneq ($(EXE),)
-$(target): $(PACKAGE)
+ifneq ($(targetexe),$(target))
+$(targetexe): $(target)
 	mv -- "$<" "$@"
 endif
 
@@ -197,7 +198,7 @@ install: install-exec install-data
 install-exec: install-bin
 install-data: install-man install-doc
 
-install-bin: $(target)
+install-bin: $(targetexe)
 	mkdir -p -- "$(DESTDIR)$(bindir)"
 	$(call INSTALL_BIN,$(bindir),$^)
 

@@ -1,5 +1,5 @@
 /**
- * @file    pngtopi1
+ * @file    pngtopi1.x
  * @author  Benjamin Gerard <https://sourceforge.net/u/benjihan>
  * @date    2017-05-31
  * @brief   a simple png to p[ci]1/2/3 (and reverse) image converter.
@@ -9,7 +9,7 @@
   ----------------------------------------------------------------------
 
   pngtopi1 - a simple png to p[ci]1/2/3 image converter (and reverse)
-  Copyright (C) 2018  Benjamin Gerard
+  Copyright (C) 2018 Benjamin Gerard
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
