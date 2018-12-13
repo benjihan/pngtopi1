@@ -1971,7 +1971,7 @@ static void print_usage(void)
     "   image unless a provided <output> suggest otherwise.\n"
     " - If <input> is a Degas  image the default is to create a PNG\n"
     "   image unless a provided <output> suggest otherwise.\n"
-    " - If pntopi1 detects a discrepancy between a provided <output>\n"
+    " - If pngtopi1 detects a discrepancy between a provided <output>\n"
     "   filename extension and what is really going to be written then it\n"
     "   issues a warning but still process as requested. Use -q to\n"
     "   remove the warning.\n"

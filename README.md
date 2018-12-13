@@ -49,7 +49,7 @@
     image unless a provided `<output>` suggest otherwise.
   - If `<input>` is a Degas  image the default is to create a `PNG`
     image unless a provided `<output>` suggest otherwise.
-  - If `pntopi1` detects a discrepancy between a provided `<output>`
+  - If `pngtopi1` detects a discrepancy between a provided `<output>`
     filename extension and what is really going to be written then it
     issues a warning but still process as requested. Use `-q` to
     remove the warning.
