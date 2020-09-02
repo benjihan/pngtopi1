@@ -9,7 +9,7 @@
 shopt -s nullglob
 exec 11>&1                      # Copy stdout to 11 (just in case)
 exec 12>&2                      # Copy stderr to 12 (just in case)
-exec 3>/dev/null 		# Debug output
+exec 3>/dev/null		# Debug output
 
 me=`basename "$0" .sh`
 verbose=2			# 0:none 1:error 2:info 3:debug
@@ -29,14 +29,14 @@ _blk=`$tput blink`
 _udl=`$tput smul`
 _dim=`$tput dim`
 _off=`$tput sgr0`
-_bla=`$tput setf 0`; _BLA="${_bla}${_bld}"
-_blu=`$tput setf 1`; _BLU="${_blu}${_bld}"
-_grn=`$tput setf 2`; _GRN="${_grn}${_bld}"
-_cya=`$tput setf 3`; _CYA="${_cya}${_bld}"
-_red=`$tput setf 4`; _RED="${_red}${_bld}"
-_mgt=`$tput setf 5`; _MGT="${_mgt}${_bld}"
-_ylo=`$tput setf 6`; _YLO="${_ylo}${_bld}"
-_whi=`$tput setf 7`; _WHI="${_whi}${_bld}"
+_bla=`$tput setaf 0`; _BLA="${_bla}${_bld}"
+_blu=`$tput setaf 1`; _BLU="${_blu}${_bld}"
+_grn=`$tput setaf 2`; _GRN="${_grn}${_bld}"
+_ylo=`$tput setaf 3`; _YLO="${_ylo}${_bld}"
+_red=`$tput setaf 4`; _RED="${_red}${_bld}"
+_mgt=`$tput setaf 5`; _MGT="${_mgt}${_bld}"
+_cya=`$tput setaf 6`; _CYA="${_cya}${_bld}"
+_whi=`$tput setaf 7`; _WHI="${_whi}${_bld}"
 _nrm="$_off"
 
 # ------------------------------------------------------------
@@ -116,11 +116,10 @@ if [ -z ${montage-} ]; then
 dmsg "${_ylo}montage${_off}: $montage"
 
 cv_resize() {
-    local s dh d=72			# base density
-    dh=$(( d*W*10/(H*16) ))
+    local s dw dw=$((W*72/320)) # 1 point per pixel (72DPI) at W=320)
+    dh=$((dw*(H*16)/(W*10)))	# Set print aspect to 16:10
     s="-colorspace RGB -resize ${W}x${H}! -colorspace sRGB"
-    s+=" -set units PixelsPerInch -density ${d}x${dh}"
-#    s+=" -quantize Rec709YCbCr"
+    s+=" -set units PixelsPerInch -density ${dw}x${dh}"
     dmsg "${_ylo}resize${_off}: $s"
     printf "%s" "$s"
 }
@@ -130,8 +129,12 @@ l=0
 der=$(( (256>>D)*100/256  ))
 dmsg "${_cya}error-diff${_off}: $der%"
 
-red_dither="-dither Riemersma -define dither:diffusion-amount=${der}%"
-color_reduc="${red_dither} ${Q+-quantize $Q} -colors $C"
+red_dither="-dither  Riemersma -define dither:diffusion-amount=${der}%"
+if (( C > 2 )); then
+    color_reduc="${red_dither} ${Q+-quantize $Q} -colors $C"
+else
+    color_reduc="${red_dither} ${Q+-quantize $Q} -monochrome"
+fi
 
 dmsg "${_ylo}color-reduction${_off}: $color_reduc"
 imsg "${_cya}output${_off}: \"${out}\""
@@ -144,7 +147,7 @@ imsg "${_cya}output${_off}: \"${out}\""
 # pngtopi1_flags=--color=${D}r\ -q
 
 case ${mode-7} in
-    
+
     1)
 	# Color reduction only
 	#
@@ -154,7 +157,7 @@ case ${mode-7} in
 		 ${color_reduc} \
 		 "$out"
 	;;
-    
+
     2)
 	# Reduc+Depth
 	#
@@ -209,7 +212,7 @@ case ${mode-7} in
 		 "$out"
 	;;
     7)
-	# Ordered 2x2  
+	# Ordered 2x2
 	#
 	label="Ordered/2x2::$E"
 	$convert "${inp}" \
