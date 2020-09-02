@@ -45,6 +45,12 @@ PKGCONFIG = pkg-config
 endif
 endif
 
+ifndef EXE
+ifeq ($(CC),m68k-atari-mint-gcc)
+EXE=.ttp
+endif
+endif
+
 # ----------------------------------------------------------------------
 #  Confgure libpng with pkg-config
 # ----------------------------------------------------------------------
@@ -124,7 +130,8 @@ dist-dir:
 	mkdir -- "$(dist_dir)"	# Fail if exist or whatever
 
 dist-arc: dist-dir
-	@set -o pipefail; tar -cpC $(topdir) $(dist_lst) | tar -xpC $(dist_dir)
+	@set -o pipefail; tar -cpC $(topdir) $(dist_lst) \
+	| tar -xpC $(dist_dir)
 	sed -e 's/@VERSION@/$(VERSION)/' $(topdir)/pngtopi1$(man1ext) \
 	>$(dist_dir)/pngtopi1$(man1ext)
 	echo $(VERSION) >$(dist_dir)/VERSION

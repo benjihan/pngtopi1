@@ -9,7 +9,7 @@
   ----------------------------------------------------------------------
 
   pngtopi1 - a simple png to p[ci]1/2/3 image converter (and reverse)
-  Copyright (C) 2018 Benjamin Gerard
+  Copyright (C) 2018-2020 Benjamin Gerard
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@
 # endif
 
 # ifndef COPYRIGHT
-#  define COPYRIGHT "Copyright (c) 2018 Benjamin Gerard"
+#  define COPYRIGHT "Copyright (c) 2018-2020 Benjamin Gerard"
 # endif
 
 # ifndef PROGRAM_NAME
@@ -188,7 +188,7 @@ static int save_img_as(myimg_t * img, char * path, int type);
 static int save_pix_as(mypix_t * pix, char * path, int type);
 static int save_png_as(mypix_t * pix, char * path);
 static myimg_t * mypix_from_file(myfile_t * const mf);
-static void print_usage(void);
+static void print_usage(int verbose);
 static void print_version(void);
 
 
@@ -481,8 +481,8 @@ static uint16_t rgb_8to4[256];
 
 /* The index of the table match the ST hardware RGB encoding.
  *
- *  STe for backward compatibility uses the bits #3,#7,#11 as the
- *  bit zero of respectively green,blue,red component.
+ *  STe for backward compatibility uses the bits #3,#7,#11 as the LSB
+ *  of respectively green,blue,red component.
  */
 
 /* STf: Zero fill */
@@ -493,8 +493,8 @@ static const uint8_t stf_zerofill[16] = {
 
 /* STf: Left bit replicated  */
 static const uint8_t stf_replicated[16] = {
-  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC,
-  0x00,0x24,0x48,0x6C,0x90,0xB4,0xD8,0xFC
+  0x00,0x24,0x49,0x6D,0x92,0xB6,0xDB,0xFF,
+  0x00,0x24,0x49,0x6D,0x92,0xB6,0xDB,0xFF
 };
 
 /* Stf: Full range */
@@ -1215,7 +1215,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
     for (x=0; x < img->pix.w; x+=16) {
       /* Per bit-plan */
       for (z=0; z<(1<<img->pix.d); ++z) {
-        unsigned bm, bv;
+        uint_fast16_t bm, bv;
         /* Per pixel in block */
         for (bv=0, bm=0x8000; bm; ++x, bm >>= 1) {
           const unsigned rgb = s->get(png,x,y);
@@ -1630,7 +1630,7 @@ int main(int argc, char *argv[])
       break;
     switch (c)
     {
-    case 'h': print_usage(); ecode = E_OK; goto exit;
+    case 'h': print_usage(opt_bla); ecode = E_OK; goto exit;
     case 'V': print_version(); ecode = E_OK; goto exit;
       /**/
     case 'v': opt_bla++; break;
@@ -1921,7 +1921,7 @@ static void print_version(void)
     );
 }
 
-static void print_usage(void)
+static void print_usage(int verbose)
 {
   puts(
     "Usage: " PROGRAM_NAME " [OPTION] <input> [<output>]\n"
@@ -1943,56 +1943,60 @@ static void print_usage(void)
     " -r --pix            Force output as a pi1, pi2 or pi3.\n"
     " -d --same-dir       Automatic save path includes <input> path.\n"
     );
-  puts(
-    "When creating Degas image the <input> image resolution is used to\n"
-    "select the <output> type.\n"
-    "\n"
-    " - PI1 / PC1 images are 320x200x16 colors\n"
-    " - PI2 / PC2 images are 640x200x4 colors\n"
-    " - PI3 / PC3 images are 640x400x2 monochrome (B&W)\n"
-    "\n"
-    "Automatic output name:\n"
-    "\n"
-    " - If <output> is omitted the file path is created automatically.\n"
-    " - If the --same-dir option is omitted the output path is the\n"
-    "   current working directory. Otherwise it is the same as the input\n"
-    "   file.\n"
-    " - The filename part of the <output> path is the <input> filename\n"
-    "   with its dot extension replaced by the output format natural dot\n"
-    "   extension.\n"
-    );
-  puts(
-    "Output type:\n"
-    "\n"
-    " - If --pix or --pcx is specified the <output> is respectively\n"
-    " a raw (PI?) or rle compressed (PC?) Degas image whatever the\n"
-    " <input>.\n"
-    " - If <input> is a PNG image the default is to create a PI?\n"
-    "   image unless a provided <output> suggest otherwise.\n"
-    " - If <input> is a Degas  image the default is to create a PNG\n"
-    "   image unless a provided <output> suggest otherwise.\n"
-    " - If pngtopi1 detects a discrepancy between a provided <output>\n"
-    "   filename extension and what is really going to be written then it\n"
-    "   issues a warning but still process as requested. Use -q to\n"
-    "   remove the warning.\n"
-    );
-  puts(
-    "Color conversion mode:\n"
-    "\n"
-    " - The X parameter decides if a Degas image will use 3 or 4 bits\n"
-    "   per color component.  The consequence might be the lost of a\n"
-    "   precious colormap entry in some (rare) cases if the provided input\n"
-    "   image was not created accordingly.\n"
-    "\n"
-    " - The Y parameter picks the method used to upscale 3/4 bits color\n"
-    "   component to 8 bits.\n"
-    "\n"
-    "   | Y |       Name |          Description |           Example |\n"
-    "   |---|------------|----------------------|-------------------|\n"
-    "   | z | Zero-fill  | Simple Left shift.   | $3 -> 3:$60 4:$60 |\n"
-    "   | r | Replicated | Replicate left bits  | $3 -> 3:$6C 4:$66 |\n"
-    "   | f | Full-range | Ensure full range    | $3 -> 3:$6D 4:$66 |\n"
-    );
+  if (!verbose) {
+    puts("  Add -v/--verbose prior to -h/--help for details.\n");
+  } else {
+    puts(
+      "When creating Degas image the <input> image resolution is used to\n"
+      "select the <output> type.\n"
+      "\n"
+      " - PI1 / PC1 images are 320x200x16 colors\n"
+      " - PI2 / PC2 images are 640x200x4 colors\n"
+      " - PI3 / PC3 images are 640x400x2 monochrome (B&W)\n"
+      "\n"
+      "Automatic output name:\n"
+      "\n"
+      " - If <output> is omitted the file path is created automatically.\n"
+      " - If the --same-dir option is omitted the output path is the\n"
+      "   current working directory. Otherwise it is the same as the input\n"
+      "   file.\n"
+      " - The filename part of the <output> path is the <input> filename\n"
+      "   with its dot extension replaced by the output format natural dot\n"
+      "   extension.\n"
+      );
+    puts(
+      "Output type:\n"
+      "\n"
+      " - If --pix or --pcx is specified the <output> is respectively\n"
+      " a raw (PI?) or rle compressed (PC?) Degas image whatever the\n"
+      " <input>.\n"
+      " - If <input> is a PNG image the default is to create a PI?\n"
+      "   image unless a provided <output> suggest otherwise.\n"
+      " - If <input> is a Degas  image the default is to create a PNG\n"
+      "   image unless a provided <output> suggest otherwise.\n"
+      " - If pngtopi1 detects a discrepancy between a provided <output>\n"
+      "   filename extension and what is really going to be written then it\n"
+      "   issues a warning but still process as requested. Use -q to\n"
+      "   remove the warning.\n"
+      );
+    puts(
+      "Color conversion mode:\n"
+      "\n"
+      " - The X parameter decides if a Degas image will use 3 or 4 bits\n"
+      "   per color component.  The consequence might be the lost of a\n"
+      "   precious colormap entry in some (rare) cases if the provided input\n"
+      "   image was not created accordingly.\n"
+      "\n"
+      " - The Y parameter picks the method used to upscale 3/4 bits color\n"
+      "   component to 8 bits.\n"
+      "\n"
+      "   | Y |       Name |          Description |           Example |\n"
+      "   |---|------------|----------------------|-------------------|\n"
+      "   | z | Zero-fill  | Simple Left shift.   | $3 -> 3:$60 4:$60 |\n"
+      "   | r | Replicated | Replicate left bits  | $3 -> 3:$6C 4:$66 |\n"
+      "   | f | Full-range | Ensure full range    | $3 -> 3:$6D 4:$66 |\n"
+      );
+  }
   puts(
     COPYRIGHT ".\n"
 #ifdef PACKAGE_URL

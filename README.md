@@ -66,9 +66,9 @@
     
 	| `Y` |       Name |          Description |             Example |
     |-----|------------|----------------------|---------------------|
-    | `z` | Zero-fill  | Simple Left shift.   | `$3 -> 3:$60 4:$60` |
-    | `r` | Replicated | Replicate left bits  | `$3 -> 3:$6C 4:$66` |
-    | `f` | Full-range | Ensure full range    | `$3 -> 3:$6D 4:$66` |
+    | `z` | Zero-fill  | Simple Left shift.   | `$5 -> 3:$40 4:$50` |
+    | `r` | Replicated | Replicate left bits  | `$5 -> 3:$49 4:$55` |
+    | `f` | Full-range | Ensure full range    | `$3 -> 3:$48 4:$55` |
 
 
 ---------------------------------------------------------------------
