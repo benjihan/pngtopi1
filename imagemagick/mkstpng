@@ -9,9 +9,12 @@
 shopt -s nullglob
 exec 11>&1                      # Copy stdout to 11 (just in case)
 exec 12>&2                      # Copy stderr to 12 (just in case)
-exec 3>/dev/null 		# Debug output
+exec 3>/dev/null		# Debug output
 
 me=`basename "$0" .sh`
+version=0.5
+copy='Copyright (C) 2018-2023 Benjamin Gerard'
+
 verbose=2			# 0:none 1:error 2:info 3:debug
 W=320; H=200; L2C=2; EXT=pi1	# Default to pi1
 D=3				# Default to STf
@@ -22,22 +25,31 @@ unset inp out
 #  Terminal colors
 #
 
+set +e
 tput=true
-[ -t 1 -a -t 2 ] && tput=`which tput 2>/dev/null`
-_bld=`$tput bold`
+[ -t 1 -a -t 2 ] && tput=`type -p tput`
+_bld=`$tput bold || $tput smso`
 _blk=`$tput blink`
 _udl=`$tput smul`
 _dim=`$tput dim`
 _off=`$tput sgr0`
-_bla=`$tput setf 0`; _BLA="${_bla}${_bld}"
-_blu=`$tput setf 1`; _BLU="${_blu}${_bld}"
-_grn=`$tput setf 2`; _GRN="${_grn}${_bld}"
-_cya=`$tput setf 3`; _CYA="${_cya}${_bld}"
-_red=`$tput setf 4`; _RED="${_red}${_bld}"
-_mgt=`$tput setf 5`; _MGT="${_mgt}${_bld}"
-_ylo=`$tput setf 6`; _YLO="${_ylo}${_bld}"
-_whi=`$tput setf 7`; _WHI="${_whi}${_bld}"
+
+setf=setf; colors=( 0 4 2 6 1 5 3 7 )
+if $tput setaf 0 >/dev/null; then
+    setf=setaf; colors=( 0 1 2 3 4 5 6 7 )
+fi
+
+_bla=`$tput $setf ${colors[0]}`; _BLA="${_bla}${_bld}"
+_red=`$tput $setf ${colors[1]}`; _RED="${_red}${_bld}"
+_grn=`$tput $setf ${colors[2]}`; _GRN="${_grn}${_bld}"
+_ylo=`$tput $setf ${colors[3]}`; _YLO="${_ylo}${_bld}"
+_blu=`$tput $setf ${colors[4]}`; _BLU="${_blu}${_bld}"
+_mgt=`$tput $setf ${colors[5]}`; _MGT="${_mgt}${_bld}"
+_cya=`$tput $setf ${colors[6]}`; _CYA="${_cya}${_bld}"
+_whi=`$tput $setf ${colors[7]}`; _WHI="${_whi}${_bld}"
 _nrm="$_off"
+
+set -e
 
 # ------------------------------------------------------------
 # Log functions
@@ -50,14 +62,60 @@ dmsg() { dcat <<<"$*${_nrm}"; }
 imsg() { icat <<<"$*${_nrm}"; }
 emsg() { ecat <<<"${_RED}${me}${_off}: $*${_nrm}"; }
 
+print_usage() {
+    local d="${_dim}" n="${_nrm}" u="${_udl}" b="${_bld}" w="${_WHI}" m=${_MGT}
+    cat <<EOF
+$u${w}Usage$n: ${_cya}${me}$n [OPTIONS] <${m}INP$n> <${m}OUT${_bld}$n>
+
+  Convert an image to a PNG usable by ${b}pngtopi1$n using ${b}ImageMagick$n.
+
+$u${w}OPTIONS$n:
+
+$b -h $d........$n Print this message and exit.
+$b -v $d........$n Print version and exit.
+$b -v $d........$n Increase verbose level [0:none 1:error 2:info(*) 3:debug]
+$b -q $d........$n Decrease verbose level
+$b -f $d........$n STf color quantization (3 bits per component) (*)
+$b -e $d........$n STe color quantization (4 bits per component)
+$b -r<${u}REZ$n> $d...$n Set output image format:
+	     {l,L,1} = 320x200x16 (pi1) (*)
+	     {m,M,2} = 640x200x4 (pi2)
+	     {h,H,3} = 640x400x2 (pi3)
+
+$u${w}INP$n (input image file):
+
+  Any images supported by ${b}convert$n.
+
+$u${w}OUT$n (output image file):
+
+  A png image file which format is compatible with ${b}pngtopi1$n
+  matching requested resolution (see $b-r$n).
+
+
+$u${w}ENV$n:
+
+$b mode $d......$n [1-11] use a different color reduction method.
+$b convert $d...$n Set to override ImageMagick convert program to use.
+
+${copy}
+EOF
+}
+
+print_version() {
+    cat <<EOF
+$me $version
+
+${copy}
+EOF
+}
 # ------------------------------------------------------------
 #  Command line parsing
 
-sopt=":hvqefr:"
+sopt=":hVvqefr:m:"
 while getopts "$sopt" opt "$@"; do
     case "$opt" in
-	h) echo "TO DO Usage"; exit 0 ;;
-	V) echo "TODO Version"; exit 0 ;;
+	h) print_usage; exit 0 ;;
+	V) print_version; exit 0 ;;
 	v) verbose=$(( verbose + (verbose<3) )) ;;
 	q) verbose=$(( verbose - (verbose>0) )) ;;
 	f) D=3 ;;
@@ -69,6 +127,7 @@ while getopts "$sopt" opt "$@"; do
 	       *) emsg "invalid argument for ${_bld}-$opt${_off} -- '$OPTARG'"
 		  exit 1 ;;
 	   esac ;;
+	m) mode="$OPTARG" ;;
 	?) emsg "illegal option ${_bld}-$OPTARG${_nrm}"; exit 1 ;;
 	*) internal "option not handled -- '$opt'" >&2 ;;
     esac
@@ -104,16 +163,10 @@ fi
 imsg "${_cya}input${_off}: \"${inp}\""
 
 if [ -z ${convert-} ]; then
-       convert=`which convert 2>/dev/null` ||
+       convert=`type -p convert` ||
 	   { emsg "${_bld}convert${_off} not found"; exit 1; }
    fi
 dmsg "${_ylo}convert${_off}: $convert"
-
-if [ -z ${montage-} ]; then
-       montage=`which montage 2>/dev/null` ||
-	   { emsg "${_bld}montage${_off} not found"; exit 1; }
-   fi
-dmsg "${_ylo}montage${_off}: $montage"
 
 cv_resize() {
     local s dh d=72			# base density
@@ -136,15 +189,8 @@ color_reduc="${red_dither} ${Q+-quantize $Q} -colors $C"
 dmsg "${_ylo}color-reduction${_off}: $color_reduc"
 imsg "${_cya}output${_off}: \"${out}\""
 
-# if test -z "${pngtopi1+set}" &&
-#        ! pngtopi1=`which pngtopi1 2>/dev/null`; then
-#     emsg "missing pngtopi1"
-#     exit 1
-# fi
-# pngtopi1_flags=--color=${D}r\ -q
+case "${mode-7}" in
 
-case ${mode-7} in
-    
     1)
 	# Color reduction only
 	#
@@ -154,7 +200,7 @@ case ${mode-7} in
 		 ${color_reduc} \
 		 "$out"
 	;;
-    
+
     2)
 	# Reduc+Depth
 	#
@@ -208,16 +254,7 @@ case ${mode-7} in
 		 ${color_reduc} \
 		 "$out"
 	;;
-    7)
-	# Ordered 2x2  
-	#
-	label="Ordered/2x2::$E"
-	$convert "${inp}" \
-		 $(cv_resize) \
-	 -ordered-dither 2x2,$E,$E,$E \
-	 ${color_reduc} \
-	 "$out"
-	;;
+    # 7) ;; # 7 is default and fallback
 
     8)
 	# Halftone 4x4 (Angled)
@@ -261,6 +298,16 @@ case ${mode-7} in
 		 -ordered-dither c5x5w,$E,$E,$E \
 		 ${color_reduc} \
 		 "$out"
+	;;
+    *)
+	# Ordered 2x2
+	#
+	label="Ordered/2x2::$E"
+	$convert "${inp}" \
+		 $(cv_resize) \
+	 -ordered-dither 2x2,$E,$E,$E \
+	 ${color_reduc} \
+	 "$out"
 	;;
 
 esac
