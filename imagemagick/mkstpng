@@ -15,7 +15,8 @@ me=`basename "$0" .sh`
 verbose=2			# 0:none 1:error 2:info 3:debug
 W=320; H=200; L2C=2; EXT=pi1	# Default to pi1
 D=3				# Default to STf
-
+dry=${dry-}			#
+dither_levels=			#
 unset inp out
 
 # ------------------------------------------------------------
@@ -53,11 +54,12 @@ emsg() { ecat <<<"${_RED}${me}${_off}: $*${_nrm}"; }
 # ------------------------------------------------------------
 #  Command line parsing
 
-sopt=":hvqefr:"
+sopt=":hvnqefr:"
 while getopts "$sopt" opt "$@"; do
     case "$opt" in
-	h) echo "TO DO Usage"; exit 0 ;;
+	h) echo "TODO Usage"; exit 0 ;;
 	V) echo "TODO Version"; exit 0 ;;
+	n) dry="echo " ;;
 	v) verbose=$(( verbose + (verbose<3) )) ;;
 	q) verbose=$(( verbose - (verbose>0) )) ;;
 	f) D=3 ;;
@@ -104,15 +106,15 @@ fi
 imsg "${_cya}input${_off}: \"${inp}\""
 
 if [ -z ${convert-} ]; then
-       convert=`which convert 2>/dev/null` ||
-	   { emsg "${_bld}convert${_off} not found"; exit 1; }
-   fi
+    convert=`which convert 2>/dev/null` ||
+	{ emsg "${_bld}convert${_off} not found"; exit 1; }
+fi
 dmsg "${_ylo}convert${_off}: $convert"
 
 if [ -z ${montage-} ]; then
-       montage=`which montage 2>/dev/null` ||
-	   { emsg "${_bld}montage${_off} not found"; exit 1; }
-   fi
+    montage=`which montage 2>/dev/null` ||
+	{ emsg "${_bld}montage${_off} not found"; exit 1; }
+fi
 dmsg "${_ylo}montage${_off}: $montage"
 
 cv_resize() {
@@ -129,11 +131,14 @@ l=0
 der=$(( (256>>D)*100/256  ))
 dmsg "${_cya}error-diff${_off}: $der%"
 
-red_dither="-dither  Riemersma -define dither:diffusion-amount=${der}%"
+# convert -list dither [ None FloydSteinberg Riemersma ]
+
+der=2
+red_dither="-dither Riemersma -define dither:diffusion-amount=${der}%"
 if (( C > 2 )); then
-    color_reduc="${red_dither} ${Q+-quantize $Q} -colors $C"
+    color_reduc="${red_dither} -colors $C"
 else
-    color_reduc="${red_dither} ${Q+-quantize $Q} -monochrome"
+    color_reduc="${red_dither} -monochrome"
 fi
 
 dmsg "${_ylo}color-reduction${_off}: $color_reduc"
@@ -146,6 +151,8 @@ imsg "${_cya}output${_off}: \"${out}\""
 # fi
 # pngtopi1_flags=--color=${D}r\ -q
 
+dither_levels=,$E,$E,$E
+convert="${dry}${convert}"
 case ${mode-7} in
 
     1)
@@ -197,7 +204,7 @@ case ${mode-7} in
 	label="Threshold:$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-		 -ordered-dither threshold,$E,$E,$E \
+		 -ordered-dither threshold${dither_levels} \
 		 ${color_reduc} \
 		 "$out"
 	;;
@@ -207,7 +214,7 @@ case ${mode-7} in
 	label="Checkerboard:$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-		 -ordered-dither 2x1,$E,$E,$E \
+		 -ordered-dither 2x1${dither_levels} \
 		 ${color_reduc} \
 		 "$out"
 	;;
@@ -217,9 +224,9 @@ case ${mode-7} in
 	label="Ordered/2x2::$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-	 -ordered-dither 2x2,$E,$E,$E \
-	 ${color_reduc} \
-	 "$out"
+		 -ordered-dither 2x2${dither_levels} \
+		 ${color_reduc} \
+		 "$out"
 	;;
 
     8)
@@ -228,7 +235,7 @@ case ${mode-7} in
 	label="Halftone/4x4(angled):$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-		 -ordered-dither 4x1,$E,$E,$E \
+		 -ordered-dither 4x1${dither_levels} \
 		 ${color_reduc} \
 		 "$out"
 	;;
@@ -239,7 +246,7 @@ case ${mode-7} in
 	label="Halftone/4x4(ortho):$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-		 -ordered-dither h4x4o,$E,$E,$E \
+		 -ordered-dither h4x4o${dither_levels} \
 		 ${color_reduc} \
 		 "$out"
 	;;
@@ -250,7 +257,7 @@ case ${mode-7} in
 	label="Circles-5x5(black):$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-		 -ordered-dither c5x5b,$E,$E,$E \
+		 -ordered-dither c5x5b${dither_levels} \
 		 ${color_reduc} \
 		 "$out"
 	;;
@@ -261,9 +268,19 @@ case ${mode-7} in
 	label="Circles-5x5(White):$E"
 	$convert "${inp}" \
 		 $(cv_resize) \
-		 -ordered-dither c5x5w,$E,$E,$E \
+		 -ordered-dither c5x5w${dither_levels} \
 		 ${color_reduc} \
 		 "$out"
 	;;
 
+    12)
+	# Ordered 3x3 (dispersed)
+	#
+	label="Ordered 3x3 (dispersed)"
+	$convert "${inp}" \
+		 $(cv_resize) \
+		 -ordered-dither o3x3${dither_levels} \
+		 ${color_reduc} \
+		 "$out"
+	;;
 esac
