@@ -1,5 +1,5 @@
 /**
- * @file    pngtopi1.x
+ * @file    pngtopi1.c
  * @author  Benjamin Gerard <https://sourceforge.net/u/benjihan>
  * @date    2017-05-31
  * @brief   a simple png to p[ci]1/2/3 (and reverse) image converter.
@@ -9,7 +9,7 @@
   ----------------------------------------------------------------------
 
   pngtopi1 - a simple png to p[ci]1/2/3 image converter (and reverse)
-  Copyright (C) 2018-2020 Benjamin Gerard
+  Copyright (C) 2018-2023 Benjamin Gerard
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@
 # endif
 
 # ifndef COPYRIGHT
-#  define COPYRIGHT "Copyright (c) 2018-2020 Benjamin Gerard"
+#  define COPYRIGHT "Copyright (c) 2018-2023 Benjamin Gerard AKA Ben^OVR"
 # endif
 
 # ifndef PROGRAM_NAME
@@ -96,13 +96,13 @@ static const char type_names[][4] = {
 
 /* RGB conversion methods (bit-field) */
 enum {
-  CQ_TBD = 0,                  /* ..00 | To be determined           */
-  CQ_STF = 1,                  /* ..01 | Using 3 bits per component */
-  CQ_STE = 2,                  /* ..10 | Using 4 bits per component */
+  CQ_TBD = 0,		       /* ..00 | To be determined           */
+  CQ_STF = 1,		       /* ..01 | Using 3 bits per component */
+  CQ_STE = 2,		       /* ..10 | Using 4 bits per component */
 
-  CQ_000 = 4,                  /* 01.. | 0 fill                     */
-  CQ_LBR = 8,                  /* 10.. | Left bit replication       */
-  CQ_FDR = 12                  /* 11.. | Full dynamic range         */
+  CQ_000 = 4,		       /* 01.. | 0 fill                     */
+  CQ_LBR = 8,		       /* 10.. | Left bit replication       */
+  CQ_FDR = 12		       /* 11.. | Full dynamic range         */
 };
 
 /* Degas magic word */
@@ -116,9 +116,9 @@ enum {
 };
 
 static uint8_t opt_col = CQ_TBD; /* mask used color bits (default TBD)*/
-static uint8_t opt_out = PXX;    /* {PXX,PIX,PCX,PNG} (see enum) */
-static  int8_t opt_bla = 0;      /* blah blah level */
-static uint8_t opt_dir = 0;      /* same dir versus current dir */
+static uint8_t opt_out = PXX;	 /* {PXX,PIX,PCX,PNG} (see enum) */
+static	int8_t opt_bla = 0;	 /* blah blah level */
+static uint8_t opt_dir = 0;	 /* same dir versus current dir */
 
 typedef unsigned int uint_t;
 
@@ -127,14 +127,14 @@ struct myfile_s {
   FILE * file;
   char * path;
   int err;
-  size_t len;
+  ssize_t len;
   uint8_t mode, report;
 };
 
-#define IMG_COMMON                              \
-  int8_t magic[4];                              \
-  char * path;                                  \
-  int    type, w, h, d, c
+#define IMG_COMMON				\
+  int8_t magic[4];				\
+  char * path;					\
+  int	 type, w, h, d, c
 
 typedef struct mypng_s mypng_t;
 struct mypng_s {
@@ -143,7 +143,7 @@ struct mypng_s {
   int i, t, f, z, p;
   png_structp png;
   png_colorp  lut;
-  int         lutsz;
+  int	      lutsz;
   png_infop   inf;
   png_bytep  *rows;
 };
@@ -151,7 +151,7 @@ struct mypng_s {
 typedef struct mypix_s mypix_t;
 struct mypix_s {
   IMG_COMMON;
-  uint8_t bits[32034];           /* uncompressed (include header)  */
+  uint8_t bits[32034];		 /* uncompressed (include header)  */
 };
 
 typedef union myimg_s myimg_t;
@@ -162,7 +162,7 @@ union myimg_s {
 
 typedef struct colorcount_s colcnt_t;
 struct colorcount_s {
-  uint32_t rgb:12, cnt:20;              /* Is it legal ? */
+  uint32_t rgb:12, cnt:20;		/* Is it legal ? */
 };
 static colcnt_t g_colcnt[0x1000];
 
@@ -340,20 +340,20 @@ static int mf_close(myfile_t * const mf)
     }
     mf->file = 0;
     dmsg("C<%c> %u \"%s\"\n",
-         "ARW+"[mf->mode], (uint_t)mf->len, mf->path);
+	 "ARW+"[mf->mode], (uint_t)mf->len, mf->path);
   }
   return 0;
 }
 
-static size_t mf_tell(myfile_t * const mf)
+static ssize_t mf_tell(myfile_t * const mf)
 {
-  size_t pos = ftell(mf->file);
+  ssize_t pos = ftell(mf->file);
   if (pos == -1)
     if (mf->report) syserror(mf->path, "tell error");
   return pos;
 }
 
-static size_t mf_seek(myfile_t * const mf, long offset, int whence)
+static ssize_t mf_seek(myfile_t * const mf, long offset, int whence)
 {
   if ( fseek(mf->file, offset, whence) ) {
     if (mf->report) syserror(mf->path, "seek error");
@@ -386,8 +386,8 @@ static int mf_open(myfile_t * const mf, char * path, int mode)
   switch (mf->mode) {
   case 1:
     if (-1 == mf_seek(mf,0,SEEK_END) ||
-        -1 == (mf->len = mf_tell(mf))  ||
-        -1 == mf_seek(mf,0,SEEK_SET)) {
+	-1 == (mf->len = mf_tell(mf))  ||
+	-1 == mf_seek(mf,0,SEEK_SET)) {
       mf->report = 0;
       mf_close(mf);
       return -1;
@@ -405,9 +405,9 @@ static int mf_open(myfile_t * const mf, char * path, int mode)
   return 0;
 }
 
-static size_t mf_read(myfile_t * const mf, void * data, size_t len)
+static ssize_t mf_read(myfile_t * const mf, void * data, ssize_t len)
 {
-  size_t n;
+  ssize_t n;
 
   assert( mf );
   assert( mf->mode == 1 );
@@ -421,8 +421,8 @@ static size_t mf_read(myfile_t * const mf, void * data, size_t len)
     /*      "ARW+"[mf->mode], (uint_t) n, mf->path); */
     if (n != len) {
       if (mf->report)
-        emsg("missing input data (%u/%u) -- %s\n\n",
-             (uint_t)n, (uint_t)len, mf->path);
+	emsg("missing input data (%u/%u) -- %s\n\n",
+	     (uint_t)n, (uint_t)len, mf->path);
       n = -1;
     }
   }
@@ -430,9 +430,9 @@ static size_t mf_read(myfile_t * const mf, void * data, size_t len)
   return n;
 }
 
-static size_t mf_write(myfile_t * const mf, const void * data, size_t len)
+static ssize_t mf_write(myfile_t * const mf, const void * data, ssize_t len)
 {
-  size_t n;
+  ssize_t n;
 
   assert( mf );
   assert( mf->mode == 2 );
@@ -449,8 +449,8 @@ static size_t mf_write(myfile_t * const mf, const void * data, size_t len)
     /*      "ARW+"[mf->mode], (uint_t) n, (uint_t) mf->len, mf->path); */
     if (n != len) {
       if (mf->report)
-        emsg("uncompleted write (%u/%u) -- %s\n",
-             (uint_t)n, (uint_t)len, mf->path);
+	emsg("uncompleted write (%u/%u) -- %s\n",
+	     (uint_t)n, (uint_t)len, mf->path);
       n = -1;
     }
   }
@@ -470,7 +470,7 @@ static size_t mf_write(myfile_t * const mf, const void * data, size_t len)
  * - color component  depth STf:3 STe:4
  * - The left bit fill method (zero,replicated,full-range)
  */
-static uint8_t col_4to8[16];            /* X -> XX */
+static uint8_t col_4to8[16];		/* X -> XX */
 
 /* Table to covert 8 bit color component to 4bit.
  *
@@ -599,20 +599,20 @@ static inline uint16_t rgb444(uint8_t r, uint8_t g, uint8_t b)
  * ---------------------------------------------------------------------- */
 
 
-#define PXL_CHECK(D,T,C)                        \
-  do {                                          \
-    assert ( png );                             \
-    assert( (uint_t)x < (uint_t)png->w );       \
-    assert( (uint_t)y < (uint_t)png->h );       \
-    assert(png->d == (D));                      \
-    assert(png->t == (T));                      \
-    assert(png->c == (C));                      \
+#define PXL_CHECK(D,T,C)			\
+  do {						\
+    assert ( png );				\
+    assert( (uint_t)x < (uint_t)png->w );	\
+    assert( (uint_t)y < (uint_t)png->h );	\
+    assert(png->d == (D));			\
+    assert(png->t == (T));			\
+    assert(png->c == (C));			\
   } while (0)
 
-#define LUT_CHECK(I)             \
-  do {                           \
-    assert( png->lut );          \
-    assert( (I) < png->lutsz );  \
+#define LUT_CHECK(I)		 \
+  do {				 \
+    assert( png->lut );		 \
+    assert( (I) < png->lutsz );	 \
   } while (0)
 
 typedef uint16_t (*get_f)(const mypng_t *, int, int);
@@ -631,10 +631,10 @@ static uint16_t get_st_pixel(const mypix_t * const pix, int x, int y)
   assert( (uint_t)y < (uint_t)pix->h );
 
   /* Using y as offset */
-  y *= bytes_per_line;                  /* line offset */
-  y += tile << log2_bytes_per_tile;     /* tile offset */
-  y += ( x >> 3 ) & 1;                  /* byte offset */
-  y += 34;                              /* skip header */
+  y *= bytes_per_line;			/* line offset */
+  y += tile << log2_bytes_per_tile;	/* tile offset */
+  y += ( x >> 3 ) & 1;			/* byte offset */
+  y += 34;				/* skip header */
 
   for ( col = p = 0; p < nbplans; ++p, y += 2 )
     col |= ( ( pix->bits[ y ] >> bitnum ) & 1 ) << p;
@@ -775,7 +775,7 @@ static myimg_t * read_img_file(char * ipath)
   if (-1 == mf_open(&mf, ipath, 1))
     goto error;
 
-  if (-1 == mf_read(&mf, header, 8))
+  if (-1 == (int)mf_read(&mf, header, 8))
     goto error;
 
   if (png_sig_cmp(header, 0, 8)) {
@@ -831,16 +831,16 @@ static myimg_t * read_img_file(char * ipath)
 
     png_get_PLTE(png->png, png->inf, &png->lut, &png->lutsz);
     if (png->lutsz) {
-      const png_byte m = (opt_col&3) == CQ_STE ? ~0xF0 : ~0xE0;
+      const png_byte m = (opt_col&3) == CQ_STE ? 0x0F0 : 0x1F;
       int i;
 
       amsg("PNG color look-up table has %d entries:\n", png->lutsz);
       for (i=0; i<png->lutsz; ++i)
-        amsg(
-          "%3d #%02X%02X%02X $%03x #%02X%02X%02X\n",
-          i,png->lut[i].red,png->lut[i].green,png->lut[i].blue,
-          rgb444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
-          png->lut[i].red&m, png->lut[i].green&m, png->lut[i].blue&m);
+	amsg(
+	  "%3d #%02X%02X%02X $%03x #%02X%02X%02X\n",
+	  i,png->lut[i].red,png->lut[i].green,png->lut[i].blue,
+	  rgb444(png->lut[i].red,png->lut[i].green,png->lut[i].blue),
+	  png->lut[i].red&m, png->lut[i].green&m, png->lut[i].blue&m);
     }
 
     png->rows = (png_bytep *)
@@ -848,7 +848,7 @@ static myimg_t * read_img_file(char * ipath)
 
     for (y=0; y<png->h; ++y)
       png->rows[y] = (png_byte *)
-        png_malloc(png->png, png_get_rowbytes(png->png,png->inf));
+	png_malloc(png->png, png_get_rowbytes(png->png,png->inf));
 
     png_read_image(png->png, png->rows);
   }
@@ -870,11 +870,11 @@ static const char * mypng_typestr(int type)
 # define CASE_COLOR_MASK(A) case PNG_COLOR_MASK_##A: return #A
   static char s[8];
   switch (type) {
-    CASE_COLOR_TYPE(GRAY);           /* (bit depths 1, 2, 4, 8, 16) */
+    CASE_COLOR_TYPE(GRAY);	     /* (bit depths 1, 2, 4, 8, 16) */
     CASE_COLOR_TYPE(GRAY_ALPHA);     /* (bit depths 8, 16) */
-    CASE_COLOR_TYPE(PALETTE);        /* (bit depths 1, 2, 4, 8) */
-    CASE_COLOR_TYPE(RGB);            /* (bit_depths 8, 16) */
-    CASE_COLOR_TYPE(RGB_ALPHA);      /* (bit_depths 8, 16) */
+    CASE_COLOR_TYPE(PALETTE);	     /* (bit depths 1, 2, 4, 8) */
+    CASE_COLOR_TYPE(RGB);	     /* (bit_depths 8, 16) */
+    CASE_COLOR_TYPE(RGB_ALPHA);	     /* (bit_depths 8, 16) */
     /* CASE_COLOR_MASK(PALETTE); */
     /* CASE_COLOR_MASK(COLOR); */
     /* CASE_COLOR_MASK(ALPHA); */
@@ -957,45 +957,45 @@ static int rle_read(myfile_t * mf, myimg_t * img)
 
       /* decode an entire bitplan line */
       for (x=0; x<bytes_per_plan; ) {
-        uint8_t rle[2];
+	uint8_t rle[2];
 
-        /* read code + 1 */
-        if ( -1 == mf_read(mf, rle, 2 ) )
-          return -1;
+	/* read code + 1 */
+	if ( -1 == mf_read(mf, rle, 2 ) )
+	  return -1;
 
-        if (*rle >= 128) {
-          /* Fill 257-rle[0] with rle[1] */
-          const uint8_t v = rle[1];
-          int n = 257 - *rle;
+	if (*rle >= 128) {
+	  /* Fill 257-rle[0] with rle[1] */
+	  const uint8_t v = rle[1];
+	  int n = 257 - *rle;
 
-          if (x+n > bytes_per_plan) {
-            emsg("rle-fill overflow line:%d plan:%d byte:%d\n",y,z,x);
-            return -1;
-          }
-          do {
-            raw[x++] = v;
-          } while (--n);
+	  if (x+n > bytes_per_plan) {
+	    emsg("rle-fill overflow line:%d plan:%d byte:%d\n",y,z,x);
+	    return -1;
+	  }
+	  do {
+	    raw[x++] = v;
+	  } while (--n);
 
-        } else {
-          /* Copy rle[1] and rle[0] more bytes */
-          const int n = *rle + 1;
-          if (x+n > bytes_per_plan) {
-            emsg("rle-copy overflow line:%d plan:%d byte:%d\n",y,z,x);
-            return -1;
-          }
-          if ( -1 == mf_read(mf, raw+x+1, n-1) )
-            return -1;
-          raw[x] = rle[1];
-          x += n;
-        }
+	} else {
+	  /* Copy rle[1] and rle[0] more bytes */
+	  const int n = *rle + 1;
+	  if (x+n > bytes_per_plan) {
+	    emsg("rle-copy overflow line:%d plan:%d byte:%d\n",y,z,x);
+	    return -1;
+	  }
+	  if ( -1 == mf_read(mf, raw+x+1, n-1) )
+	    return -1;
+	  raw[x] = rle[1];
+	  x += n;
+	}
       }
       assert( x == bytes_per_plan );
 
       /* For each tile (interlacing) */
       for (x=0; x<bytes_per_plan; x += 2) {
-        row[0] = raw[x+0];
-        row[1] = raw[x+1];
-        row += bytes_per_tile;
+	row[0] = raw[x+0];
+	row[1] = raw[x+1];
+	row += bytes_per_tile;
       }
     }
   }
@@ -1022,9 +1022,9 @@ static myimg_t * mypix_from_file(myfile_t * const mf)
   for (i=0; i<6; ++i) {
     if (id == degas[i].id) {
       if (mf->len < degas[i].minsz) {
-        emsg("file length (%u) is too short for %s image -- %s\n",
-             (uint_t) mf->len, degas[i].name, mf->path);
-        return 0;
+	emsg("file length (%u) is too short for %s image -- %s\n",
+	     (uint_t) mf->len, degas[i].name, mf->path);
+	return 0;
       }
       break;
     }
@@ -1039,7 +1039,7 @@ static myimg_t * mypix_from_file(myfile_t * const mf)
   if (!img)
     return 0;
 
-  memcpy(img->pix.bits,hd,34);          /* copy header */
+  memcpy(img->pix.bits,hd,34);		/* copy header */
   if ( ! degas[i].rle ) {
     /* Uncompressed Degas image */
     if ( -1 == mf_read(mf, img->pix.bits+34, 32000) )
@@ -1061,19 +1061,19 @@ error:
 static myimg_t * mypix_from_png(mypng_t * png)
 {
   static struct {
-    int d,c,t;                          /* depth,channel,type */
-    get_f get;                          /* get pixel function */
+    int d,c,t;				/* depth,channel,type */
+    get_f get;				/* get pixel function */
   } *s, supported[] = {
     /* 320 x 200 */
-    { 1, 1, PNG_COLOR_TYPE_GRAY,    get_gray1    },
-    { 2, 1, PNG_COLOR_TYPE_GRAY,    get_gray2    },
-    { 4, 1, PNG_COLOR_TYPE_GRAY,    get_gray4    },
-    { 8, 1, PNG_COLOR_TYPE_GRAY,    get_gray8    },
+    { 1, 1, PNG_COLOR_TYPE_GRAY,    get_gray1	 },
+    { 2, 1, PNG_COLOR_TYPE_GRAY,    get_gray2	 },
+    { 4, 1, PNG_COLOR_TYPE_GRAY,    get_gray4	 },
+    { 8, 1, PNG_COLOR_TYPE_GRAY,    get_gray8	 },
     { 2, 1, PNG_COLOR_TYPE_PALETTE, get_indexed2 },
     { 4, 1, PNG_COLOR_TYPE_PALETTE, get_indexed4 },
     { 8, 1, PNG_COLOR_TYPE_PALETTE, get_indexed8 },
-    { 8, 3, PNG_COLOR_TYPE_RGB,     get_rgb      },
-    { 8, 4, PNG_COLOR_TYPE_RGBA,    get_rgba     },
+    { 8, 3, PNG_COLOR_TYPE_RGB,	    get_rgb	 },
+    { 8, 4, PNG_COLOR_TYPE_RGBA,    get_rgba	 },
     /**/
     { 0,0,0,0 }
   };
@@ -1093,7 +1093,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
 
   if (id == 6) {
     emsg("incompatible image dimension <%dx%d> -- %s\n",
-         png->w,png->h,png->path);
+	 png->w,png->h,png->path);
     return 0;
   }
 
@@ -1105,7 +1105,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
        png->d,png->c,mypng_typestr(png->t),png->t);
   for (s=supported; s->d; ++s) {
     dmsg("    versus d:%2d c:%2d %s(%d)\n",
-         s->d,s->c,mypng_typestr(s->t),s->t);
+	 s->d,s->c,mypng_typestr(s->t),s->t);
     if (s->d == png->d && s->c == png->c && s->t == png->t)
       break;
   }
@@ -1130,7 +1130,7 @@ static myimg_t * mypix_from_png(mypng_t * png)
     if (colcnt[y].cnt) {
       assert( y == colcnt[y].rgb );
       dmsg(" #%02d $%03X is used %5d times\n",
-           ncolors, y, colcnt[y].cnt);
+	   ncolors, y, colcnt[y].cnt);
       ncolors++;
     }
   }
@@ -1215,19 +1215,19 @@ static myimg_t * mypix_from_png(mypng_t * png)
     for (x=0; x < img->pix.w; x+=16) {
       /* Per bit-plan */
       for (z=0; z<(1<<img->pix.d); ++z) {
-        uint_fast16_t bm, bv;
-        /* Per pixel in block */
-        for (bv=0, bm=0x8000; bm; ++x, bm >>= 1) {
-          const unsigned rgb = s->get(png,x,y);
-          assert(rgb < 0x1000);
-          const unsigned idx = colcnt[rgb].rgb;
-          assert(idx < ncolors);
-          if (idx & (1<<z))
-            bv |= bm;
-        }
-        x -= 16;
-        *bits++ = bv>>8;
-        *bits++ = bv;
+	uint_fast16_t bm, bv;
+	/* Per pixel in block */
+	for (bv=0, bm=0x8000; bm; ++x, bm >>= 1) {
+	  const unsigned rgb = s->get(png,x,y);
+	  assert(rgb < 0x1000);
+	  const unsigned idx = colcnt[rgb].rgb;
+	  assert(idx < ncolors);
+	  if (idx & (1<<z))
+	    bv |= bm;
+	}
+	x -= 16;
+	*bits++ = bv>>8;
+	*bits++ = bv;
       }
     }
   }
@@ -1235,7 +1235,6 @@ static myimg_t * mypix_from_png(mypng_t * png)
 
   return img;
 }
-
 
 static void
 print_buffer(const uint8_t * b, int n, const char * label)
@@ -1251,6 +1250,13 @@ print_buffer(const uint8_t * b, int n, const char * label)
     dmsg(" %02x",b[i]);
   }
   dmsg("\n");
+#else
+# ifndef UNUSED
+#  define UNUSED(X) (void) X
+# endif
+  UNUSED(b);
+  UNUSED(n);
+  UNUSED(label);
 #endif
 }
 
@@ -1318,12 +1324,12 @@ pcx_encode_row(uint8_t * dst, const uint8_t * src, int len)
     /* Count repeat */
     for (k=i+1; k<len && src[k] == c; ++k)
       ;
-    l = k-i;                            /* number of repeat 1..N */
+    l = k-i;				/* number of repeat 1..N */
 
-    if (l >= 2) {                       /* have some repeat ? */
-      if (i > o) {                      /* have something to copy first ? */
-        j += enc_copy(dst+j, src+o, i-o);
-        o = i;
+    if (l >= 2) {			/* have some repeat ? */
+      if (i > o) {			/* have something to copy first ? */
+	j += enc_copy(dst+j, src+o, i-o);
+	o = i;
       }
       j += enc_fill(dst+j, c, l);
       o = i = k;
@@ -1349,18 +1355,18 @@ rle_decode(uint8_t * d, int dl, const uint8_t * s, int sl)
     if (c < 128) {
       /* Copy c+1 byte */
       if (j+c+1 > dl) {
-        return -1;
+	return -1;
       }
       for (++c; c; --c)
-        d[j++] = s[i++];
+	d[j++] = s[i++];
     } else {
       /* Fill 257-c times next byte */
       const uint8_t v = s[i++];
       if (j+257-c > dl) {
-        return -1;
+	return -1;
       }
       for (c=257-c; --c >= 0;)
-        d[j++] = v;
+	d[j++] = v;
     }
   }
   print_buffer(d,j,"DEC");
@@ -1374,7 +1380,7 @@ rle_decode(uint8_t * d, int dl, const uint8_t * s, int sl)
 static int save_as_pcx(myfile_t * out, mypix_t * pic)
 {
   const int bpr = (pic->w>>4) << (pic->d+1); /* bytes per row */
-  const int off = 2 << pic->d;       /* offset to next word in plan */
+  const int off = 2 << pic->d;	     /* offset to next word in plan */
   int x,y,z;
 
   uint8_t rle[128], raw[80], *r;
@@ -1397,22 +1403,22 @@ static int save_as_pcx(myfile_t * out, mypix_t * pic)
       const uint8_t * row = pix + (z<<1);
       /* For each 16-pixels tile */
       for (x=0, r=raw; x<pic->w>>4; ++x) {
-        *r++ = row[0];
-        *r++ = row[1];
-        row += off;
+	*r++ = row[0];
+	*r++ = row[1];
+	row += off;
       }
       l = pcx_encode_row(rle, raw, r-raw);
 
 #ifdef DEBUG
       if (1) {
-        uint8_t xxx[80];
-        int lx = rle_decode(xxx, 80, rle, l);
-        assert(lx == bpr >> pic->d) ;
-        assert(!memcmp(raw,xxx,lx));
+	uint8_t xxx[80];
+	int lx = rle_decode(xxx, 80, rle, l);
+	assert(lx == bpr >> pic->d) ;
+	assert(!memcmp(raw,xxx,lx));
       }
 #endif
       if (-1 == mf_write(out, rle,l))
-        return -1;
+	return -1;
     }
   }
   return (int) out->len;
@@ -1468,7 +1474,7 @@ static int save_png_as(mypix_t * pix, char * path)
   png_color lut[16];
   int png_type;
 
-  int ret=-1, y, x, ste_detect;
+  int ret=-1, y, x;
   myfile_t mf;
 
   if (-1 == mf_open(&mf,path,2))
@@ -1489,22 +1495,22 @@ static int save_png_as(mypix_t * pix, char * path)
   /* Set color #0 to black */
   lut->red = lut->green = lut->blue = 0;
 
-  assert (sizeof(lut)/sizeof(*lut) == 16 );
+  assert ( sizeof(lut)/sizeof(*lut) == 16u );
   assert ( pix->c <= 16 );
-  for ( ste_detect = y = 0; y < pix->c; ++y ) {
+  for ( y = 0; y < pix->c; ++y ) {
     const uint8_t * const st_lut = &pix->bits[2+(y<<1)];
     const uint16_t st_rgb = (st_lut[0]<<8) | st_lut[1];
-    ste_detect += !!(st_rgb & 0x888);
-    lut[y].red   = col_4to8[15 & (st_rgb>>8)];
+    lut[y].red	 = col_4to8[15 & (st_rgb>>8)];
     lut[y].green = col_4to8[15 & (st_rgb>>4)];
-    lut[y].blue  = col_4to8[15 & (st_rgb>>0)];
+    lut[y].blue	 = col_4to8[15 & (st_rgb>>0)];
     dmsg("#%X %03X %02X-%02X-%02X\n",
-         (uint_t)y, (uint_t)st_rgb & 0xFFF,
-         (uint_t)lut[y].red,(uint_t)lut[y].green,(uint_t) lut[y].blue);
+	 (uint_t)y, (uint_t)st_rgb & 0xFFF,
+	 (uint_t)lut[y].red,(uint_t)lut[y].green,(uint_t) lut[y].blue);
   }
 
   /* Skip color #0, fill the rest with White */
-  for ( y += !y ; y < 16; ++y )
+  if ( ! y ) y = 1;
+  for ( ; y < 16; ++y )
     lut[y].red = lut[y].green = lut[y].blue = 255;
 
   switch ( pix->magic[2] ) {
@@ -1512,14 +1518,14 @@ static int save_png_as(mypix_t * pix, char * path)
     assert( pix->w == 320 && pix->h == 200 && pix->d == 2 && pix->c == 16 );
     png_type = PNG_COLOR_TYPE_PALETTE;
     png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
-                 1<<pix->d, png_type, PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+		 1<<pix->d, png_type, PNG_INTERLACE_NONE,
+		 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_set_PLTE(png_ptr,info_ptr,lut,pix->c);
     png_write_info(png_ptr, info_ptr);
 
     for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
       for (x=0; x<320; x += 2)
-        tmp[x >> 1] = ( get_st_pixel(pix,x,y) << 4) | get_st_pixel(pix,x+1,y);
+	tmp[x >> 1] = ( get_st_pixel(pix,x,y) << 4) | get_st_pixel(pix,x+1,y);
       png_write_row(png_ptr, tmp);
     }
     break;
@@ -1528,19 +1534,19 @@ static int save_png_as(mypix_t * pix, char * path)
     assert( pix->w == 640 && pix->h == 200 && pix->d == 1 && pix->c == 4 );
     png_type = PNG_COLOR_TYPE_PALETTE;
     png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
-                 1<<pix->d, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+		 1<<pix->d, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE,
+		 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_set_PLTE(png_ptr,info_ptr,lut,pix->c);
     png_write_info(png_ptr, info_ptr);
 
     for (y=0, row = pix->bits+34; y<200 ; y++, row += 160) {
       for (x=0; x<640; x += 4)
-        tmp[x >> 2] = 0
-          | ( get_st_pixel(pix,x+0,y) << 6)
-          | ( get_st_pixel(pix,x+1,y) << 4)
-          | ( get_st_pixel(pix,x+2,y) << 2)
-          | ( get_st_pixel(pix,x+3,y) << 0)
-          ;
+	tmp[x >> 2] = 0
+	  | ( get_st_pixel(pix,x+0,y) << 6)
+	  | ( get_st_pixel(pix,x+1,y) << 4)
+	  | ( get_st_pixel(pix,x+2,y) << 2)
+	  | ( get_st_pixel(pix,x+3,y) << 0)
+	  ;
       png_write_row(png_ptr, tmp);
     }
     break;
@@ -1549,8 +1555,8 @@ static int save_png_as(mypix_t * pix, char * path)
     assert( pix->w == 640 && pix->h == 400 && pix->d == 0 && pix->c == 0 );
     png_type = PNG_COLOR_TYPE_GRAY;
     png_set_IHDR(png_ptr, info_ptr, pix->w, pix->h,
-                 1, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+		 1, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
+		 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
     png_write_info(png_ptr, info_ptr);
 
     row = pix->bits+34;
@@ -1575,7 +1581,7 @@ static int save_png_as(mypix_t * pix, char * path)
 error:
   mf_close(&mf);
   if (!info_ptr) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
-  if (!png_ptr)  png_destroy_write_struct(&png_ptr, (png_infopp)0);
+  if (!png_ptr)	 png_destroy_write_struct(&png_ptr, (png_infopp)0);
 
   return ret;
 
@@ -1597,26 +1603,26 @@ int main(int argc, char *argv[])
   static char me[] = PROGRAM_NAME;
 
   argv[0] = me;
-  opterr = 0;                           /* Report error */
-  optind = 1;                           /* Where arguments start */
+  opterr = 0;				/* Report error */
+  optind = 1;				/* Where arguments start */
   ecode = E_ARG;
 
   for (;;) {
     static const char sopts[] = "hV" "vq" "c:ezr" "d";
     static struct option lopts[] = {
-      {"help",    no_argument,      0, 'h'},
-      {"usage",   no_argument,      0, 'h'},
-      {"version", no_argument,      0, 'V'},
+      {"help",	  no_argument,	    0, 'h'},
+      {"usage",	  no_argument,	    0, 'h'},
+      {"version", no_argument,	    0, 'V'},
       /**/
-      {"verbose", no_argument,      0, 'v'},
-      {"quiet",   no_argument,      0, 'q'},
+      {"verbose", no_argument,	    0, 'v'},
+      {"quiet",	  no_argument,	    0, 'q'},
       /**/
-      {"color",   required_argument,0, 'c'},
-      {"ste",     no_argument,      0, 'e'},
-      {"pcx",     no_argument,      0, 'z'},
-      {"pix",     no_argument,      0, 'r'},
+      {"color",	  required_argument,0, 'c'},
+      {"ste",	  no_argument,	    0, 'e'},
+      {"pcx",	  no_argument,	    0, 'z'},
+      {"pix",	  no_argument,	    0, 'r'},
       /**/
-      {"same-dir",no_argument,      0, 'd'},
+      {"same-dir",no_argument,	    0, 'd'},
       /**/
       {0, 0, 0, 0}
     };
@@ -1639,40 +1645,40 @@ int main(int argc, char *argv[])
     case 'c': {
       int i;
       static struct { char s[3], m; } modes[] = {
-        { "3z", CQ_STF|CQ_000 },
-        { "3r", CQ_STF|CQ_LBR },
-        { "3f", CQ_STF|CQ_FDR },
-        { "4z", CQ_STE|CQ_000 },
-        { "4r", CQ_STE|CQ_LBR },
-        { "4f", CQ_STE|CQ_FDR },
+	{ "3z", CQ_STF|CQ_000 },
+	{ "3r", CQ_STF|CQ_LBR },
+	{ "3f", CQ_STF|CQ_FDR },
+	{ "4z", CQ_STE|CQ_000 },
+	{ "4r", CQ_STE|CQ_LBR },
+	{ "4f", CQ_STE|CQ_FDR },
       };
 
-      for ( i=0; i<sizeof(modes)/sizeof(*modes); ++i )
-        if ( ! strcasecmp(modes[i].s, optarg ) ) {
-          opt_col = modes[i].m; i = -1; break;
-        }
-      if (i>0) {
-        emsg("invalid argument for -c/--color -- `%s'\n",optarg);
-        goto exit;
+      for ( i=0; i<(int)(sizeof(modes)/sizeof(*modes)); ++i )
+	if ( ! strcasecmp(modes[i].s, optarg ) ) {
+	  opt_col = modes[i].m; i = -1; break;
+	}
+      if (i > 0) {
+	emsg("invalid argument for -c/--color -- `%s'\n",optarg);
+	goto exit;
       }
     } break;
     case 'e': opt_col = CQ_STE|CQ_LBR; break;
 
     case 'z':
       if (opt_out == PXX || opt_out == PCX)
-        opt_out = PCX;
+	opt_out = PCX;
       else {
-        emsg("option `-z' and `-r' are exclusive\n");
-        goto exit;
+	emsg("option `-z' and `-r' are exclusive\n");
+	goto exit;
       }
       break;
 
     case 'r': opt_out = PIX; break;
       if (opt_out == PXX || opt_out == PIX)
-        opt_out = PIX;
+	opt_out = PIX;
       else {
-        emsg("option `-z' and `-r' are exclusive\n");
-        goto exit;
+	emsg("option `-z' and `-r' are exclusive\n");
+	goto exit;
       }
       break;
 
@@ -1681,18 +1687,18 @@ int main(int argc, char *argv[])
     case 000: break;
     case '?':
       if (!opterr) {
-        if (optopt)
-          emsg("unknown option -- `%c' (%d)\n",
-               isgraph(optopt)?optopt:'.', optopt);
-        else
-          emsg("unknown option -- `%s'\n", argv[optind-1]);
+	if (optopt)
+	  emsg("unknown option -- `%c' (%d)\n",
+	       isgraph(optopt)?optopt:'.', optopt);
+	else
+	  emsg("unknown option -- `%s'\n", argv[optind-1]);
       }
       goto exit;
       break;
 
     default:
       emsg("unexpected option -- `%c' (%d)\n",
-           isgraph(c)?c:'.', c);
+	   isgraph(c)?c:'.', c);
       ecode = E_INT;
       goto exit;
     }
@@ -1736,8 +1742,8 @@ int main(int argc, char *argv[])
 
     assert( !memcmp(src->png.magic,"PNG",3) );
     imsg("input: \"%s\" %dx%dx%d PNG-%s(%d)\n",
-         basename(png->path), png->w, png->h, 1<<png->d,
-         mypng_typestr(png->t), png->t);
+	 basename(png->path), png->w, png->h, 1<<png->d,
+	 mypng_typestr(png->t), png->t);
     ecode = E_PNG;
     if (cvt = mypix_from_png(png), !cvt)
       goto exit;
@@ -1747,7 +1753,7 @@ int main(int argc, char *argv[])
     mypix_t * const pix = &src->pix;
 
     imsg("input: \"%s\" %dx%dx%d (%s)\n",
-         basename(pix->path), pix->w, pix->h, 1<<pix->d, pix->magic);
+	 basename(pix->path), pix->w, pix->h, 1<<pix->d, pix->magic);
 
     /* Default operation for P[IC][123] is PNG */
     if (opt_out == PXX)
@@ -1784,16 +1790,16 @@ static char *create_output_path(char * ipath, const char * ext)
   if (!opt_dir) {
     if (opath = mf_strdup(ibase,l+le), !opath) return 0;
     dot = strrchr(opath, '.');
-    if (dot == opath) dot = 0;        /* extension can not be start */
+    if (dot == opath) dot = 0;	      /* extension can not be start */
     if (dot == 0) dot = opath + l;    /* no extension ? dot is end */
   } else {
     char * obase;
     const int fl = strlen(ipath);
     if (opath = mf_strdup(ipath, fl+le), !opath) return 0;
     assert( fl >= l );
-    obase = opath + fl - l;           /* basename() by rewinding */
+    obase = opath + fl - l;	      /* basename() by rewinding */
     dot = strrchr(obase, '.');
-    if (dot == obase) dot = 0;        /* extension can not be start */
+    if (dot == obase) dot = 0;	      /* extension can not be start */
     if (dot == 0) dot = opath + fl;   /* no extension ? dot is end */
   }
   assert( dot > opath );
@@ -1838,12 +1844,12 @@ static int guess_type_from_path(char * path)
   if (path && (ext = strrchr(basename(path),'.')) && strlen(ext) == 4)
     if (tolower(ext[1]) == 'p') {
       if (tolower(ext[2]) == 'n' && tolower(ext[3]) == 'g')
-        return PNG;
+	return PNG;
       else if (ext[3] >= '1' && ext[3] <= '3') {
-        if (tolower(ext[2]) == 'i')
-          return PIX;
-        else if ( tolower(ext[2]) == 'c')
-          return PCX;
+	if (tolower(ext[2]) == 'i')
+	  return PIX;
+	else if ( tolower(ext[2]) == 'c')
+	  return PCX;
       }
     }
   return PXX;
@@ -1878,12 +1884,12 @@ static int save_img_as(myimg_t * img, char * path, int type)
 
   if ( guess_type != PXX && guess_type != type )
       wmsg("provided output (%s) mismatched (%s)\n",
-           type_names[guess_type], type_names[type]);
+	   type_names[guess_type], type_names[type]);
 
   assert( type != PXX );
   opath = path ? path :
     create_output_path(pix->path,
-                       native_extension(type, img->pix.magic[2]));
+		       native_extension(type, img->pix.magic[2]));
   if (!opath)
     return -1;
 
@@ -1924,7 +1930,7 @@ static void print_version(void)
 static void print_usage(int verbose)
 {
   puts(
-    "Usage: " PROGRAM_NAME " [OPTION] <input> [<output>]\n"
+    "Usage: " PROGRAM_NAME " [OPTIONS] <input> [<output>]\n"
     "\n"
     "  PNG/Degas image file converter.\n"
     "\n"
@@ -1990,11 +1996,11 @@ static void print_usage(int verbose)
       " - The Y parameter picks the method used to upscale 3/4 bits color\n"
       "   component to 8 bits.\n"
       "\n"
-      "   | Y |       Name |          Description |           Example |\n"
-      "   |---|------------|----------------------|-------------------|\n"
-      "   | z | Zero-fill  | Simple Left shift.   | $3 -> 3:$60 4:$60 |\n"
-      "   | r | Replicated | Replicate left bits  | $3 -> 3:$6C 4:$66 |\n"
-      "   | f | Full-range | Ensure full range    | $3 -> 3:$6D 4:$66 |\n"
+      "   | Y |       Name |         Description |           Example |\n"
+      "   |---|------------|---------------------|-------------------|\n"
+      "   | z | Zero-fill  | Simple Left shift   | $3 -> 3:$60 4:$60 |\n"
+      "   | r | Replicated | Replicate left bits | $3 -> 3:$6C 4:$66 |\n"
+      "   | f | Full-range | Ensure full range   | $3 -> 3:$6D 4:$66 |\n"
       );
   }
   puts(

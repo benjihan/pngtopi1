@@ -4,7 +4,7 @@
 
 ### Usage
 
-     pngtopi1 [OPTION] <input> [<output>]
+     pngtopi1 [OPTIONS] <input> [<output>]
 
 
 #### Options
@@ -43,7 +43,7 @@
 #### Output type
 
   - If `--pix` or `--pcx` is specified the `<output>` is respectively
-    a raw (`PI?`) or rle compressed (`PC?`) Degas image whatever the
+    a raw (`PI?`) or RLE compressed (`PC?`) Degas image whatever the
     `<input>`.
   - If `<input>` is a `PNG` image the default is to create a `PI?`
     image unless a provided `<output>` suggest otherwise.
@@ -64,11 +64,11 @@
   - The `Y` parameter picks the method used to upscale 3/4 bits color
     component to 8 bits.
     
-	| `Y` |       Name |          Description |             Example |
-    |-----|------------|----------------------|---------------------|
-    | `z` | Zero-fill  | Simple Left shift.   | `$5 -> 3:$40 4:$50` |
-    | `r` | Replicated | Replicate left bits  | `$5 -> 3:$49 4:$55` |
-    | `f` | Full-range | Ensure full range    | `$5 -> 3:$48 4:$55` |
+	| `Y` |       Name |         Description |             Example |
+    |-----|------------|---------------------|---------------------|
+    | `z` | Zero-fill  | Simple Left shift   | `$5 -> 3:$40 4:$50` |
+    | `r` | Replicated | Replicate left bits | `$5 -> 3:$49 4:$55` |
+    | `f` | Full-range | Ensure full range   | `$5 -> 3:$48 4:$55` |
 
 
 ---------------------------------------------------------------------
@@ -87,6 +87,7 @@ Or alternatively have a look at the _build directory:
 |   Variable   | Description         | Default value                      |
 |--------------|---------------------|------------------------------------|
 | `PKGCONFIG`  | pkg-config program  | `pkg-config`                       |
+| `PKGFLAGS`   | pkg-config flags    | *undefined*                        |
 | `PNGVERSION` | libpng version      | `$(PKGCONFIG) libpng --modversion` |
 | `PNGCFLAGS`  | libpng CFLAGS       | `$(PKGCONFIG) libpng --cflags`     |
 | `PNGLIBS`    | libpng LDLIBS       | `$(PKGCONFIG) libpng --libs`       |

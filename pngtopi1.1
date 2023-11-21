@@ -1,6 +1,6 @@
 .TH PNGTOPI1 "1" "October 2017" "pngtopi1 @VERSION@" "User Commands"
 .SH NAME
-pngtopi1 \- manual page for pngtopi1 @VERSION@
+pngtopi1 \- PNG to Atari Degas (pi1...) and vice versa image converter
 .SH SYNOPSIS
 .B pngtopi1
 [\fI\,OPTIONS\/\fR] \,<\fIinput.png\fR> [\,<\fIoutput\fR>]
@@ -27,7 +27,7 @@ Use STE color quantization (4 bits per component).
 \fB\-z\fR \fB\-\-pcx\fR
 Force output as a pc1, pc2 or pc3.
 .TP
-\fB\-r\fR \fB\-\-raw\fR
+\fB\-r\fR \fB\-\-pix\fR
 Force output as a pi1, pi2 or pi3.
 .TP
 \fB\-d\fR \fB\-\-same\-dir\fR
@@ -48,7 +48,7 @@ PI3 / PC3 images are 640x400x2 monochrome (B&W)
 .SS "Output type"
 .IP \[bu] 2
 If \fB--pix \fR or \fB--pcx \fR is specified the \fIoutput\fR is
-respectively a raw (PI?) or rle compressed (PC?) Degas image whatever
+respectively a raw (PI?) or RLE compressed (PC?) Degas image whatever
 the \fIinput\fR is.
 .IP \[bu]
 If \fIinput\fR is a \fBPNG \fR image the default is to create a PI?
@@ -84,6 +84,6 @@ component to 8 bits.
 Report bugs at
 .URL "https://github.com/benjihan/pngtopi1/issues" "pngtopi1 on github"
 .SH "COPYRIGHT"
-Copyright \(co 2017-2018 Benjamin Gerard AKA Ben/OVR
+Copyright \(co 2017-2023 Benjamin Gerard AKA Ben^OVR
 .br
 Licensed under GNU General Public License 3

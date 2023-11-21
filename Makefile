@@ -14,11 +14,10 @@ VERSION   := $(shell $(topdir)/vcversion.sh || echo ERROR)
 ifeq ($(VERSION),ERROR)
 $(error vcversion.sh failed)
 endif
-pkgconfig  = $(shell $(PKGCONFIG) $(1) || echo n/a)
+pkgconfig  = $(shell $(PKGCONFIG) $(PKGFLAGS) $(1) || echo n/a)
 
 # ----------------------------------------------------------------------
 
-.ONESHELL:
 .DELETE_ON_ERROR:
 
 # ----------------------------------------------------------------------
@@ -45,14 +44,8 @@ PKGCONFIG = pkg-config
 endif
 endif
 
-ifndef EXE
-ifeq ($(CC),m68k-atari-mint-gcc)
-EXE=.ttp
-endif
-endif
-
 # ----------------------------------------------------------------------
-#  Confgure libpng with pkg-config
+#  Configure libpng with pkg-config
 # ----------------------------------------------------------------------
 
 ifndef PNGVERSION
@@ -75,7 +68,7 @@ endif
 # ----------------------------------------------------------------------
 
 target    := $(PACKAGE)
-targetexe := $(target)$(EXE)
+targetexe := $(target)$(EXEEXT)
 
 override DEFS=\
 -DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"' \
@@ -100,22 +93,30 @@ override LDLIBS   += $(PNGLIBS)
 all: $(targetexe)
 .PHONY: all
 
-clean: ; -rm -f -- $(target) $(targetexe)
+clean: ; -rm -f -- $(targetexe)
 .PHONY: clean
 
-ifneq ($(targetexe),$(target))
-$(targetexe): $(target)
-	mv -- "$<" "$@"
+# GB: Add a rule in case an executable extension was defined. It's not
+#     perfect as such a rule might already exist. This is mitigated by
+#     using a double colon (::) rule that won't be called if a default
+#     rule already exists.
+
+ifneq (,$(EXEEXT))
+ifndef LINK.c
+LINK.c = $(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH)
+endif
+%$(EXEEXT) :: %.c
+	$(LINK.c) $^ $(LOADLIBES) $(LDLIBS) -o $@
 endif
 
+
 # ----------------------------------------------------------------------
-#  Distrib
+#  Distribution
 # ----------------------------------------------------------------------
 
 dist_dir := $(PACKAGE)-$(VERSION)
 dist_arc = $(dist_dir).tar.xz
-dist_lst = LICENSE README.md vcversion.sh Makefile pngtopi1.c	\
-_build/compile
+dist_lst = LICENSE README.md vcversion.sh Makefile $(target).c $(target).1
 
 dist: distrib
 distcheck: dist-check
@@ -123,46 +124,38 @@ distrib: dist-arc
 dist-all: all distrib
 dist-check: dist-make dist-sweep
 
-dist-dir:
-	@test ! -d "$(dist_dir)" || \
-	chmod -R -- u+w $(dist_dir)/ && \
-	rm -rf -- $(dist_dir)/
-	mkdir -- "$(dist_dir)"	# Fail if exist or whatever
+$(dist_dir):
+	@test ! -d $@ || { chmod -R u+w $@/ && rm -rf -- $@/; }
+	mkdir -- $@
 
-dist-arc: dist-dir
-	@set -o pipefail; tar -cpC $(topdir) $(dist_lst) \
-	| tar -xpC $(dist_dir)
-	sed -e 's/@VERSION@/$(VERSION)/' $(topdir)/pngtopi1$(man1ext) \
-	>$(dist_dir)/pngtopi1$(man1ext)
-	echo $(VERSION) >$(dist_dir)/VERSION
-	tar --owner=0 --group=0 -czpf $(dist_arc) $(dist_dir)/
-	rm -rf -- $(dist_dir)/
-	echo "distrib file -- \"$(dist_arc)\" -- is ready"
+$(dist_arc): $(dist_dir)
+	tar -cpC $(topdir) $(dist_lst) | tar -xpC $^
+	sed -e 's#@VERSION@#$(VERSION)#' -i $^/$(target)$(man1ext)
+	echo $(VERSION) >$^/VERSION
+	tar --owner=0 --group=0 -cJpf $(dist_arc) $^/
+	rm -rf -- $^/
 
-dist-extract: dist-arc
-	@[ ! -e $(dist_dir) ] || { echo $(dist_dir) already exist; false; }
-	@[ ! -e _build-$(dist_dir) ] || rm -rf -- _build-$(dist_dir)
-	@tar xf $(dist_arc)
-	@chmod -R ug-w $(dist_dir)/
-	@echo "extracted -- \"$(dist_arc)\""
+dist-arc: $(dist_arc)
+	@echo '*** distrib file -- "$^" -- is ready'
 
-.IGNORE: dist-make    # detect error on presence of _build-$(dist_dir)
+dist-extract: $(dist_arc)
+	@test ! -e $(dist_dir) || { echo $(dist_dir) already exist; false; }
+	tar -xf $^
+	@chmod -R ugo-w $(dist_dir)/
+	@echo '*** extracted -- "$^"'
+
 dist-make: dist-extract
-	@mkdir -- _build-$(dist_dir) && \
-	echo "compiling -- $(dist_dir)" && \
-	{ test "x$(MAKERULES)" = x || \
-	cp -- "$(MAKERULES)" _build-$(dist_dir)/; } && \
-	$(MAKE) -sC _build-$(dist_dir) \
-		-f ../$(dist_dir)/Makefile dist-all && \
-	rm -rf -- _build-$(dist_dir)
+	@rm -rf -- _build-$(dist_dir)
+	@mkdir -- _build-$(dist_dir)
+	@echo "compiling -- $(dist_dir)"
+	$(MAKE) -sC _build-$(dist_dir) -f ../$(dist_dir)/Makefile dist-all
 
 dist-sweep:
-	@test ! -d $(dist_dir) || \
-	chmod -R -- u+w $(dist_dir) && rm -rf -- $(dist_dir)
-	@test ! -d _build-$(dist_dir) || {\
-		rm -rf -- _build-$(dist_dir); \
-		echo "compilation of $(dist_dir) has failed"; \
-		false; }
+	@test ! -d $(dist_dir) \
+	|| { chmod -R -- u+w $(dist_dir) && rm -rf -- $(dist_dir); }
+	@test ! -d _build-$(dist_dir) \
+	|| rm -rf -- _build-$(dist_dir)
+	@echo "*** sweep distrib working directories"
 
 .PHONY: dist dist-all dist-arc dist-dir dist-check dist-extract	\
         dist-make dist-sweep distcheck
