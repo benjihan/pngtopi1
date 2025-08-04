@@ -1,0 +1,170 @@
+=encoding utf8
+
+
+=head1 NAME
+
+pngtopi1 - back and forth png/pi1 image converter
+
+
+=head1 SYNOPSIS
+
+pngtopi1 [B<OPTIONS>] B<input-image> [B<output-image>]
+
+
+=head1 OPTIONS
+
+=over
+
+=item B<-h>, B<--help>, B<--usage>
+
+Print this message and exit.
+
+=item B<-V>, B<--version>
+
+Print version and copyright and exit.
+
+=item B<-q>, B<--quiet>
+
+Print less messages.
+
+=item B<-v>, B<--verbose>
+
+Print more messages.
+
+=item B<-c> I<XY>, B<--color>=I<XY>
+
+Select color conversion method (see description below).
+
+=item B<-e>, B<--ste>
+
+Use STE color quantization (4 bits per component).
+
+=item B<-z>, B<--pcx>
+
+Force output as a pc1, pc2 or pc3.
+
+=item B<-r>, B<--pix>
+
+Force output as a pi1, pi2 or pi3.
+
+=item B<-d>, B<--same-dir>
+
+Automatic save path includes I<< <input> >> path.
+
+=back
+
+
+=head1 DESCRIPTION
+
+A PNG/Degas image file converter.
+
+
+=head2 Operations
+
+=over
+
+=item B<PNG> -> B<PIx>/B<PCx>
+
+Convert PNG image to corresponding Atari Degas image format compressed or not.
+
+=item B<PIx>/B<PCx> -> B<PNG>
+
+Convert Atari Degas image to PNG image.
+
+=item B<PIx> -> B<PCx>, B<PCx> -> B<PIx>,
+
+Convert compress or decompress Atari Degas image to its counterpart format.
+
+=back
+
+
+=head2 Input type
+
+When creating a Degas image the <I<input>> image resolution is used
+to select the <I<output>> type.
+
+=over 9
+
+=item B<PI1>/B<PC1>
+
+images are 320x200x16 colors
+
+=item B<PI2>/B<PC2>
+
+images are 640x200x4 colors
+
+=item B<PI3>/B<PC3>
+
+images are 640x400x2 monochrome (B&W)
+
+=back
+
+
+=head2 Output type
+
+If B<--pix> or B<--pcx> is specified the <I<output>> is respectively a
+raw (PI?) or RLE compressed (PC?) Degas image whatever the <I<input>>
+is.
+
+If <I<input>> is a B<PNG> image the default is to create a B<PI?>
+image unless a provided <I<output>> suggests otherwise.
+
+If <I<input>> is a Degas image the default is to create a B<PNG> image
+unless a provided <I<output>> suggests otherwise.
+
+When B<pngtopi1> detects a discrepancy between a provided <I<output>>
+filename extension and what is really going to be written then it
+issues a warning but still process as requested. Use B<-q>/B<--quiet>
+to remove the warning.
+
+
+=head2 Color conversion mode
+
+The B<X> parameter decides if a Degas image will use 3 or 4 bits
+per color component.  The consequence might be the lost of a precious
+colormap entry in some (rare) cases if the provided input image was
+not created accordingly.
+
+The B<Y> parameter picks the method used to upscale 3/4 bits color
+component to 8 bits.
+
+=over 4
+
+=item B<z>
+
+Simple Left shifting
+
+=item B<r>
+
+Most significant bit replication
+
+=item B<f>
+
+Using the full range
+
+=back
+
+
+=head1 BUGS
+
+Report bugs at
+L<pngtopi1 on github|https://github.com/benjihan/pngtopi1/issues>
+
+
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2017-2023 Benjamin Gerard AKA Ben^OVR
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
