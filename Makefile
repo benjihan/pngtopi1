@@ -11,7 +11,9 @@ PACKAGE   := pngtopi1
 srcdir    := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
 topdir    := $(realpath $(srcdir))
 VERSION   := $(shell $(topdir)/vcversion.sh || echo ERROR)
-ifeq ($(VERSION),ERROR)
+PACKAGE_STR = "$(PACKAGE) $(VERSION)"
+man1      := 1
+ifeq ($(or $(VERSION),ERROR),ERROR)
 $(error vcversion.sh failed)
 endif
 pkgconfig  = $(shell $(PKGCONFIG) $(PKGFLAGS) $(1) || echo n/a)
@@ -23,6 +25,7 @@ pkgconfig  = $(shell $(PKGCONFIG) $(PKGFLAGS) $(1) || echo n/a)
 # ----------------------------------------------------------------------
 
 vpath %.c $(srcdir)
+vpath %.pod $(srcdir)
 
 # ----------------------------------------------------------------------
 #  Toolchain
@@ -67,11 +70,12 @@ endif
 #  Build variables
 # ----------------------------------------------------------------------
 
-target    := $(PACKAGE)
-targetexe := $(target)$(EXEEXT)
+target     = $(PACKAGE)
+targetexe  = $(target)$(EXEEXT)
+targetman  = $(target).$(man1)
 
 override DEFS=\
--DPACKAGE_STRING='"$(PACKAGE) $(VERSION)"' \
+-DPACKAGE_STRING='$(PACKAGE_STR)' \
 -DPACKAGE_URL='"https://github.com/benjihan/pngtopi1"'
 
 ifeq ($(or $D,0),0)
@@ -91,10 +95,11 @@ override LDLIBS   += $(PNGLIBS)
 # ----------------------------------------------------------------------
 
 all: $(targetexe)
-.PHONY: all
-
+man: $(targetman)
+clean-all: clean clean-man
+clean-man: ; -rm -f -- $(targetman)
 clean: ; -rm -f -- $(targetexe)
-.PHONY: clean
+.PHONY: all man clean-all clean-man clean
 
 # GB: Add a rule in case an executable extension was defined. It's not
 #     perfect as such a rule might already exist. This is mitigated by
@@ -109,6 +114,13 @@ endif
 	$(LINK.c) $^ $(LOADLIBES) $(LDLIBS) -o $@
 endif
 
+# ----------------------------------------------------------------------
+#  Manual
+# ----------------------------------------------------------------------
+POD2MAN = $(or $(pod2man),pod2man)
+
+%.$(man1) : %.pod
+	$(POD2MAN) -s$(man1) -c "User Commands" -r $(PACKAGE_STR) $< >$@
 
 # ----------------------------------------------------------------------
 #  Distribution
@@ -116,7 +128,7 @@ endif
 
 dist_dir := $(PACKAGE)-$(VERSION)
 dist_arc = $(dist_dir).tar.xz
-dist_lst = LICENSE README.md vcversion.sh Makefile $(target).c $(target).1
+dist_lst = LICENSE README.md vcversion.sh Makefile $(target).c $(targetman)
 
 dist: distrib
 distcheck: dist-check
@@ -130,7 +142,7 @@ $(dist_dir):
 
 $(dist_arc): $(dist_dir)
 	tar -cpC $(topdir) $(dist_lst) | tar -xpC $^
-	sed -e 's#@VERSION@#$(VERSION)#' -i $^/$(target)$(man1ext)
+	sed -e 's#@VERSION@#$(VERSION)#' -i $^/$(targetman)
 	echo $(VERSION) >$^/VERSION
 	tar --owner=0 --group=0 -cJpf $(dist_arc) $^/
 	rm -rf -- $^/
@@ -164,31 +176,21 @@ dist-sweep:
 #  Install / Uninstall
 # ----------------------------------------------------------------------
 
-ifndef prefix
-PREFIX = $(error 'prefix' must be set to install)
-else
-PREFIX = $(prefix)
-endif
+PREFIX = $(or $(abspath $(prefix)),$(realpath install-dir),\
+ $(error 'prefix' must be set))
+DATADIR := $(or $(abspath $(datadir)),$(PREFIX)/share)
 
-ifndef datadir
-DATADIR = $(PREFIX)/share
-else
-DATADIR = $(datadir)
-endif
-
-exec_dir = $(PREFIX)
+exec_dir = $(patsubst %/,%,$(abspath $(PREFIX)))
 bindir   = $(exec_dir)/bin
 libdir   = $(exec_dir)/lib
 mandir   = $(DATADIR)/man
-man1dir  = $(mandir)/man1
-man1ext  = .1
+man1dir  = $(mandir)/man$(man1)
 docdir   = $(DATADIR)/doc/$(PACKAGE)-$(VERSION)
 INSTALL  = install $(INSTALL_OPT)
 
 INSTALL_BIN = $(INSTALL) -m755 -t "$(DESTDIR)$(1)" "$(2)"
 INSTALL_DOC = $(INSTALL) -m644 -t "$(DESTDIR)$(1)" "$(2)"
-INSTALL_MAN = sed -e 's/@VERSION@/$(VERSION)/' "$(2)" \
-	>"$(DESTDIR)$(1)/$(notdir $2)"
+INSTALL_MAN = $(INSTALL_DOC)
 
 install-strip: INSTALL_OPT = --strip-program=$(STRIP) -s
 install-strip: install
@@ -202,7 +204,7 @@ install-bin: $(targetexe)
 	mkdir -p -- "$(DESTDIR)$(bindir)"
 	$(call INSTALL_BIN,$(bindir),$^)
 
-install-man: $(srcdir)/$(target)$(man1ext)
+install-man: $(srcdir)/$(targetman)
 	mkdir -p -- "$(DESTDIR)$(man1dir)"
 	$(call INSTALL_MAN,$(man1dir),$<)
 
@@ -215,7 +217,7 @@ install-doc: $(topdir)/README.md
 .PHONY: install-data install-man install-doc
 
 uninstall-doc: ; rm -rf -- "$(DESTDIR)$(docdir)/"
-uninstall-man: ; rm -f -- "$(DESTDIR)$(man1dir)/$(target)$(man1ext)"
+uninstall-man: ; rm -f -- "$(DESTDIR)$(man1dir)/$(targetman)"
 uninstall-bin: ; rm -f -- "$(DESTDIR)$(bindir)/$(target)"
 
 uninstall-data: uninstall-man uninstall-doc

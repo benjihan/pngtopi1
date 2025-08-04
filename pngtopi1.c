@@ -36,7 +36,7 @@
 # endif
 
 # ifndef COPYRIGHT
-#  define COPYRIGHT "Copyright (c) 2018-2023 Benjamin Gerard AKA Ben^OVR"
+#  define COPYRIGHT "Copyright (c) 2018-2025 Benjamin Gerard AKA Ben^OVR"
 # endif
 
 # ifndef PROGRAM_NAME

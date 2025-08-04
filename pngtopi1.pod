@@ -154,7 +154,7 @@ L<pngtopi1 on github|https://github.com/benjihan/pngtopi1/issues>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2017-2023 Benjamin Gerard AKA Ben^OVR
+Copyright (C) 2017-2025 Benjamin Gerard AKA Ben^OVR
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
