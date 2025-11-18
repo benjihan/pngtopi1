@@ -178,7 +178,7 @@ dist-sweep:
 
 PREFIX = $(or $(abspath $(prefix)),$(realpath install-dir),\
  $(error 'prefix' must be set))
-DATADIR := $(or $(abspath $(datadir)),$(PREFIX)/share)
+DATADIR  = $(or $(abspath $(datadir)),$(PREFIX)/share)
 
 exec_dir = $(patsubst %/,%,$(abspath $(PREFIX)))
 bindir   = $(exec_dir)/bin
