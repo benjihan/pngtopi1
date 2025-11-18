@@ -75,18 +75,24 @@
 
 ### Build
 
-    `make D=0`
-	
-	
+ ```shell
+ make D=0
+ ```
+    
+    
 ### Install
 
-	Setting `prefix` is mandatory to run the install targets.
+Setting `prefix` is mandatory to run the install targets.
 
-	`make install prefix=<path>`
+ ```shell
+ make install prefix=<path>
+ ```
 
-     or if you want to remove debug info.
-	 
-	`make install-strip prefix=<path>`
+or if you want to remove debug info.
+     
+ ```shell
+ make install-strip prefix=<path>
+ ```
 
 
 #### Makefile variables
