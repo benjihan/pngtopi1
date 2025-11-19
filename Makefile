@@ -186,13 +186,17 @@ libdir   = $(exec_dir)/lib
 mandir   = $(DATADIR)/man
 man1dir  = $(mandir)/man$(man1)
 docdir   = $(DATADIR)/doc/$(PACKAGE)-$(VERSION)
-INSTALL  = install $(INSTALL_OPT)
 
-INSTALL_BIN = $(INSTALL) -m755 -t "$(DESTDIR)$(1)" "$(2)"
-INSTALL_DOC = $(INSTALL) -m644 -t "$(DESTDIR)$(1)" "$(2)"
+INSTALL  = install
+INSTALLX = $(INSTALL) $(INSTALLX_OPT)
+INSTALLD = $(INSTALL) $(INSTALLD_OPT)
+INSTALLX_OPT = -m755
+INSTALLD_OPT = -m644
+INSTALL_BIN = $(INSTALLX) -t "$(DESTDIR)$(1)" "$(2)"
+INSTALL_DOC = $(INSTALLD) -t "$(DESTDIR)$(1)" "$(2)"
 INSTALL_MAN = $(INSTALL_DOC)
 
-install-strip: INSTALL_OPT = --strip-program=$(STRIP) -s
+install-strip: INSTALLX_OPT += --strip-program=$(STRIP) -s
 install-strip: install
 install: install-exec install-data
 	@echo "$(PACKAGE) $(VERSION) should be installed"
